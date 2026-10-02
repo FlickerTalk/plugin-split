@@ -11,7 +11,11 @@ ${t.toString()}`)},Dr=class{constructor(e){this.patterns=[],this.$state=e}if(e,t
 * { box-sizing: border-box; }
 .bar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 4px 0 8px; }
 .grow { flex: 1; min-width: 0; }
-h1 { font-size: 18px; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+h1 { font-size: 18px; margin: 0; overflow-wrap: anywhere; }
+/* An account's title has a line of its own, whole and wrapping, above its row of buttons: on a
+   narrow phone a row with six buttons would leave it two letters. */
+.title-line { padding: 4px 0 0; overflow-wrap: anywhere; }
+.title-line .form input { flex: 1; }
 button {
   appearance: none; border: 1px solid currentColor; background: transparent; color: inherit;
   border-radius: 10px; min-width: 44px; height: 44px; font: inherit; padding: 0 10px; cursor: pointer; opacity: .8;
@@ -71,7 +75,7 @@ li .open { flex: 1; display: flex; flex-direction: column; align-items: flex-sta
       ${this.place===De?`<p class="hint with" data-local>${I("phone-portrait-outline",e("localOnly"))}</p>`:""}
       <div class="form" data-form="new"><input type="text" name="value" maxlength="${Ce}" autocomplete="off" placeholder="${m(e("namePlaceholder"))}" aria-label="${m(e("newAccount"))}"><select name="currency" aria-label="${m(e("currency"))}">${r}</select><button type="button" data-act="submit" aria-label="${m(e("newAccount"))}">${ie("add-outline")}</button></div>
       ${i?`<ul>${i}</ul>`:`<p class="empty">${m(e("empty"))}</p>`}`}accountScreen(){let e=s=>this.T(s),t=this.account,r=t.readOnly?I("download-outline",e("readOnly")):t.ready?"":I("sync-outline",e("waitingData")),i=t.writable;return`
-      <div class="bar" data-header></div>
+      <div class="header" data-header></div>
       <p class="status with" data-status aria-live="polite"></p>
       <p class="hint" data-hint>${m(this.mayLive?e("liveHint"):e("needsChat"))}</p>
       <p class="hint with">${I("people-outline",e("forTwo"))}</p>
@@ -84,13 +88,14 @@ li .open { flex: 1; display: flex; flex-direction: column; align-items: flex-sta
              <div class="choices" data-choices="add"></div><p class="warn" data-error role="alert"></p>
              <button type="button" data-act="submit" aria-label="${m(e("add"))}">${ie("add-outline")}</button></div>`:""}
       <ul data-entries></ul>
-      ${i?`<div class="form nick" data-form="nick"><input type="text" name="value" maxlength="${li}" autocomplete="off" value="${m(t.nick)}" placeholder="${m(e("nick"))}" aria-label="${m(e("nick"))}"><button type="button" data-act="submit" aria-label="${m(e("save"))}">${ie("checkmark-outline")}</button></div>`:""}`}paintHeader(){let e=this.view?.querySelector("[data-header]");if(!e||!this.account)return;let t=o=>this.T(o),r=this.account,i=this.session&&(this.status==="joined"||this.status==="waiting"),s=this.renaming?`<div class="form wide" data-form="rename"><input type="text" name="value" maxlength="${Ce}" autocomplete="off" value="${m(r.name)}" aria-label="${m(t("rename"))}"><button type="button" data-act="submit" aria-label="${m(t("save"))}">${ie("checkmark-outline")}</button></div>`:`<h1 class="grow" data-name>${m(this.nameOf())}</h1>`;e.innerHTML=`
+      ${i?`<div class="form nick" data-form="nick"><input type="text" name="value" maxlength="${li}" autocomplete="off" value="${m(t.nick)}" placeholder="${m(e("nick"))}" aria-label="${m(e("nick"))}"><button type="button" data-act="submit" aria-label="${m(e("save"))}">${ie("checkmark-outline")}</button></div>`:""}`}paintHeader(){let e=this.view?.querySelector("[data-header]");if(!e||!this.account)return;let t=o=>this.T(o),r=this.account,i=this.session&&(this.status==="joined"||this.status==="waiting"),s=this.renaming?`<div class="form wide" data-form="rename"><input type="text" name="value" maxlength="${Ce}" autocomplete="off" value="${m(r.name)}" aria-label="${m(t("rename"))}"><button type="button" data-act="submit" aria-label="${m(t("save"))}">${ie("checkmark-outline")}</button></div>`:`<h1 data-name>${m(this.nameOf())}</h1>`;e.innerHTML=`<div class="title-line">${s}</div>
+      <div class="bar">
       ${re("back",t("back"),"arrow-back-outline")}
-      ${s}
       ${!this.renaming&&r.writable?re("rename",t("rename"),"pencil-outline"):""}
       ${this.mayLive&&!r.readOnly?`<button type="button" data-act="live" aria-pressed="${i?"true":"false"}" aria-label="${m(t(i?"stopLive":"live"))}" class="text${i?" on":""}">${I("sync-outline",t("live"))}</button>`:""}
       ${this.maySay&&r.ready&&!r.crowded?re("send",t("send"),"send-outline"):""}
-      ${re("close",t("close"),"close-outline")}`}nameOf(){return this.account.name||this.pendingTitle||this.T("untitled")}paintName(){let e=this.renaming?null:this.view?.querySelector("[data-name]");e&&(e.textContent=this.nameOf())}paintStatus(){this.paintHeader();let e=this.view?.querySelector("[data-status]");if(!e)return;let t=s=>this.T(s),i={waiting:t("waiting"),joined:t("joined"),silent:`${t("silent")} ${t("kept")}`,unreachable:`${t("unreachable")} ${t("kept")}`,left:`${t("left")} ${t("kept")}`,outdated:t("outdated")}[this.status];e.innerHTML=i?I(fc[this.status],i):""}paintWarning(){let e=this.view?.querySelector("[data-warning]");e&&(e.innerHTML=this.keeper.full?I("alert-circle-outline",this.T("full")):"")}paintError(){let e=this.view?.querySelector("[data-error]");e&&(e.textContent=this.badAmount&&this.account?this.T("badAmount",{example:this.plainAmount(ci)}):"")}paintInvite(){let e=this.view?.querySelector("[data-invite]");if(e){if(!this.invite){e.innerHTML="";return}e.innerHTML=`<span class="with">${I("log-in-outline",this.T("joinPrompt",{name:this.invite.name}))}</span>
+      ${re("close",t("close"),"close-outline")}
+      </div>`}nameOf(){return this.account.name||this.pendingTitle||this.T("untitled")}paintName(){let e=this.renaming?null:this.view?.querySelector("[data-name]");e&&(e.textContent=this.nameOf())}paintStatus(){this.paintHeader();let e=this.view?.querySelector("[data-status]");if(!e)return;let t=s=>this.T(s),i={waiting:t("waiting"),joined:t("joined"),silent:`${t("silent")} ${t("kept")}`,unreachable:`${t("unreachable")} ${t("kept")}`,left:`${t("left")} ${t("kept")}`,outdated:t("outdated")}[this.status];e.innerHTML=i?I(fc[this.status],i):""}paintWarning(){let e=this.view?.querySelector("[data-warning]");e&&(e.innerHTML=this.keeper.full?I("alert-circle-outline",this.T("full")):"")}paintError(){let e=this.view?.querySelector("[data-error]");e&&(e.textContent=this.badAmount&&this.account?this.T("badAmount",{example:this.plainAmount(ci)}):"")}paintInvite(){let e=this.view?.querySelector("[data-invite]");if(e){if(!this.invite){e.innerHTML="";return}e.innerHTML=`<span class="with">${I("log-in-outline",this.T("joinPrompt",{name:this.invite.name}))}</span>
       <button type="button" data-act="join">${m(this.T("join"))}</button>
       <button type="button" data-act="notNow">${m(this.T("notNow"))}</button>`}}paintSummary(){let e=this.view?.querySelector("[data-summary]"),t=this.account;if(!e||!t)return;if(!t.ready){e.innerHTML="";return}let r=(l,c)=>this.T(l,c),{total:i,balance:s}=t.totals(),o=s!==null;(!o||s===0)&&(this.settling=!1);let a="";if(this.settling&&t.writable){let l=s>0?r("settleTheyPay",{amount:this.money(s)}):r("settleYouPay",{amount:this.money(-s)});a=`<div class="confirm"><span>${m(l)}</span>
         <button type="button" class="text" data-act="confirmSettle">${I("cash-outline",r("settle"))}</button>

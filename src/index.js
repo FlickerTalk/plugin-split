@@ -41,7 +41,11 @@ const STYLE = `
 * { box-sizing: border-box; }
 .bar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 4px 0 8px; }
 .grow { flex: 1; min-width: 0; }
-h1 { font-size: 18px; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+h1 { font-size: 18px; margin: 0; overflow-wrap: anywhere; }
+/* An account's title has a line of its own, whole and wrapping, above its row of buttons: on a
+   narrow phone a row with six buttons would leave it two letters. */
+.title-line { padding: 4px 0 0; overflow-wrap: anywhere; }
+.title-line .form input { flex: 1; }
 button {
   appearance: none; border: 1px solid currentColor; background: transparent; color: inherit;
   border-radius: 10px; min-width: 44px; height: 44px; font: inherit; padding: 0 10px; cursor: pointer; opacity: .8;
@@ -648,7 +652,7 @@ class SplitElement extends HTMLElement {
     const note = account.readOnly ? withIcon("download-outline", T("readOnly")) : account.ready ? "" : withIcon("sync-outline", T("waitingData"));
     const writable = account.writable;
     return `
-      <div class="bar" data-header></div>
+      <div class="header" data-header></div>
       <p class="status with" data-status aria-live="polite"></p>
       <p class="hint" data-hint>${escape(this.mayLive ? T("liveHint") : T("needsChat"))}</p>
       <p class="hint with">${withIcon("people-outline", T("forTwo"))}</p>
@@ -676,14 +680,15 @@ class SplitElement extends HTMLElement {
     const live = this.session && (this.status === "joined" || this.status === "waiting");
     const title = this.renaming
       ? `<div class="form wide" data-form="rename"><input type="text" name="value" maxlength="${MAX_NAME}" autocomplete="off" value="${escape(account.name)}" aria-label="${escape(T("rename"))}"><button type="button" data-act="submit" aria-label="${escape(T("save"))}">${icon("checkmark-outline")}</button></div>`
-      : `<h1 class="grow" data-name>${escape(this.nameOf())}</h1>`;
-    header.innerHTML = `
+      : `<h1 data-name>${escape(this.nameOf())}</h1>`;
+    header.innerHTML = `<div class="title-line">${title}</div>
+      <div class="bar">
       ${button("back", T("back"), "arrow-back-outline")}
-      ${title}
       ${!this.renaming && account.writable ? button("rename", T("rename"), "pencil-outline") : ""}
       ${this.mayLive && !account.readOnly ? `<button type="button" data-act="live" aria-pressed="${live ? "true" : "false"}" aria-label="${escape(live ? T("stopLive") : T("live"))}" class="text${live ? " on" : ""}">${withIcon("sync-outline", T("live"))}</button>` : ""}
       ${this.maySay && account.ready && !account.crowded ? button("send", T("send"), "send-outline") : ""}
-      ${button("close", T("close"), "close-outline")}`;
+      ${button("close", T("close"), "close-outline")}
+      </div>`;
   }
 
   nameOf() {

@@ -1003,3 +1003,31 @@ describe("found on Android phones", () => {
   });
 });
 
+
+describe("a narrow phone", () => {
+  it("puts the account's title on its own line, whole, with the buttons on a row below", async () => {
+    const element = await phone(fakeCore());
+    const long = "Viaje a Lisboa con los primos en septiembre, gastos de todos";
+    await newAccount(element, long);
+    const header = inside(element).querySelector("[data-header]");
+    const title = header.querySelector("[data-name]");
+    expect(title.textContent).toBe(long);
+    // The title is not an item of the flexible row of buttons, which could shrink it to nothing.
+    expect(title.closest(".bar")).toBeNull();
+    expect(header.classList.contains("bar")).toBe(false);
+    const buttons = header.querySelector(".bar");
+    expect(buttons).not.toBeNull();
+    expect(title.compareDocumentPosition(buttons) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    for (const act of ["back", "rename", "live", "send", "close"]) expect(buttons.querySelector(`[data-act="${act}"]`), act).not.toBeNull();
+    // Renaming takes the title's line too.
+    await press(element, "rename");
+    expect(header.querySelector('[data-form="rename"]').closest(".bar")).toBeNull();
+    const css = inside(element).querySelector("style").textContent;
+    expect(css).not.toContain("ellipsis");
+    expect(css).toMatch(/\.title-line\s*\{[^}]*overflow-wrap:\s*anywhere/);
+    expect(css).not.toMatch(/h1\s*\{[^}]*nowrap/);
+    // Buttons never go under 44 px, and a row of them wraps rather than leave a 320 px screen.
+    expect(css).toMatch(/\nbutton\s*\{[^}]*min-width:\s*44px[^}]*height:\s*44px/);
+    expect(css).toMatch(/\.bar\s*\{[^}]*flex-wrap:\s*wrap/);
+  });
+});
