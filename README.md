@@ -14,6 +14,13 @@ paid what and who owes whom — kept on each phone and joined live from a conver
 - **💸 Settle up** records that the one who owes paid the balance, after asking inside the plugin.
 - **For two people.** Split knows no names: it says "I" and "the other person", or the nickname
   each one gives themselves. "I paid" on one phone is "the other person paid" on the other.
+- **A third person cannot join.** Once an account is shared, it belongs to those two phones:
+  🔄 from it, in a conversation with someone else, only looks for the first person (nobody there
+  answers, and after about 8 seconds Split says the other person doesn't have it open), and a
+  hello for that account from anyone else gets no answer and no data. If an account still ends up
+  with entries from more than two people (or this phone lost its record of who it is), Split
+  claims no balance: it shows a warning instead of "Owes you / You owe / All square", and offers
+  neither 💸 Settle up nor 📤.
 - **🔄 Live**, from a conversation: the same account on both phones, each change on the other phone
   as it happens. The limit, said in the plugin: changes join only while **both** have the account
   open in that conversation. If the other phone does not answer within about 8 seconds, Split
