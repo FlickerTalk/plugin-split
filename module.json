@@ -1,0 +1,14 @@
+{
+  "id": "com.flickertalk.split",
+  "name": "Split",
+  "version": "1.0.0",
+  "minCoreVersion": "1.1.0",
+  "components": [
+    "ft-split"
+  ],
+  "permissions": {
+    "live": true,
+    "send": "propose"
+  },
+  "summary": "Shared expenses between two people: who paid what and who owes whom, kept on each phone and joined live from a conversation."
+}
