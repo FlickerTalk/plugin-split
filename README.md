@@ -14,18 +14,18 @@ paid what and who owes whom — kept on each phone and joined live from a conver
 - **An expense**: the amount, what it was for, **who paid** (I, or the other person) and how it
   splits: **half each**, or **all of it for the one who did not pay**. Amounts can be typed with a
   decimal comma or a decimal point (`12,50` or `12.50`).
-- **The balance**, from your side: "Owes you €12.50", "You owe €12.50" or "All square ✅".
-- **💸 Settle up** records that the one who owes paid the balance, after asking inside the plugin.
+- **The balance**, from your side: "Owes you €12.50", "You owe €12.50" or "All square".
+- **Settle up** records that the one who owes paid the balance, after asking inside the plugin.
 - **For two people.** Split knows no names: it says "I" and "the other person", or the nickname
   each one gives themselves. "I paid" on one phone is "the other person paid" on the other.
 - **A third person cannot join.** Once an account is shared, it belongs to those two phones:
-  🔄 from it, in a conversation with someone else, only looks for the first person (nobody there
+  Live from it, in a conversation with someone else, only looks for the first person (nobody there
   answers, and after about 8 seconds Split says the other person doesn't have it open), and a
   hello for that account from anyone else gets no answer and no data. If an account still ends up
   with entries from more than two people (or this phone lost its record of who it is), Split
   claims no balance: it shows a warning instead of "Owes you / You owe / All square", and offers
-  neither 💸 Settle up nor 📤.
-- **🔄 Live**, from a conversation: the same account on both phones, each change on the other phone
+  neither Settle up nor 📤.
+- **Live**, from a conversation: the same account on both phones, each change on the other phone
   as it happens. The limit, said in the plugin: changes join only while **both** have the account
   open in that conversation. If the other phone does not answer within about 8 seconds, Split
   says so; it cannot tell whether the other person does not have Split, did not allow it, or has
@@ -40,7 +40,9 @@ paid what and who owes whom — kept on each phone and joined live from a conver
   🧾 Lisbon · total €312.40 · I paid €200.00 · you €112.40 · you owe me €43.80
   ```
 
-- **21 languages**, right to left in Arabic, dark mode.
+- **21 languages**, right to left in Arabic, dark mode. Icons are [Ionicons](https://ionic.io/ionicons),
+  like the app's: the ones the app lends to plugins, and the others carried in the bundle. The
+  only emoji are in the summary 📤 puts in the composer, which is a message.
 
 Not in this version: more than two people, uneven splits, several currencies or exchange rates
 (they would need the network), receipts, categories, export.
@@ -143,4 +145,5 @@ the licences of the dependencies.
 
 ## Licence
 
-MIT. The bundle contains Yjs and lib0 (MIT); their licences are in `THIRD_PARTY_NOTICES.md`.
+MIT. The bundle contains Yjs, lib0 and some Ionicons (all MIT); their licences are in
+`THIRD_PARTY_NOTICES.md`.
