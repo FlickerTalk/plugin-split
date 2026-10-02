@@ -110,7 +110,9 @@ class SplitElement extends HTMLElement {
   constructor() {
     super();
     this.root = this.attachShadow({ mode: "open" });
-    this.lang = "en";
+    // Not `this.lang`: that is HTMLElement's reflected attribute, and a custom element's
+    // constructor may not leave attributes (a browser throws for document.createElement).
+    this.language = "en";
     this.mayLive = false;
     this.screen = "home";
     this.metas = [];
@@ -154,19 +156,19 @@ class SplitElement extends HTMLElement {
   }
 
   T(key, holes = {}) {
-    return t(this.lang, key, { app: APP_NAME, ...holes });
+    return t(this.language, key, { app: APP_NAME, ...holes });
   }
 
   /** An amount of the open account, as the phone's language writes it. */
   money(minor, currency = this.account?.currency) {
-    return formatMoney(minor, currency, this.lang);
+    return formatMoney(minor, currency, this.language);
   }
 
   /** An amount as one types it: no symbol, no grouping, the language's decimal mark. */
   plainAmount(minor) {
     let mark = ".";
     try {
-      mark = new Intl.NumberFormat(this.lang).formatToParts(1.5).find((part) => part.type === "decimal")?.value ?? ".";
+      mark = new Intl.NumberFormat(this.language).formatToParts(1.5).find((part) => part.type === "decimal")?.value ?? ".";
     } catch {
       mark = ".";
     }
@@ -196,7 +198,7 @@ class SplitElement extends HTMLElement {
 
   currencyName(code) {
     try {
-      return new Intl.DisplayNames(this.lang, { type: "currency" }).of(code) ?? code;
+      return new Intl.DisplayNames(this.language, { type: "currency" }).of(code) ?? code;
     } catch {
       return code;
     }
@@ -205,7 +207,7 @@ class SplitElement extends HTMLElement {
   // ---- What the app hands over ----
 
   async onOpen(opening) {
-    this.lang = opening.lang || "en";
+    this.language = opening.lang || "en";
     const place = placeOf(opening.chat);
     if (place !== this.place) {
       await this.leave();
@@ -215,10 +217,10 @@ class SplitElement extends HTMLElement {
     }
     // Live needs a conversation to keep the account in: without a valid chat, never live.
     this.mayLive = Boolean(opening.live) && place !== LOCAL_PLACE;
-    this.setAttribute("lang", this.lang);
+    this.setAttribute("lang", this.language);
     if (opening.dark) this.setAttribute("dark", "");
     else this.removeAttribute("dark");
-    this.setAttribute("dir", dirOf(this.lang));
+    this.setAttribute("dir", dirOf(this.language));
     this.metas = await this.keeper.index();
     this.paint();
   }

@@ -1031,3 +1031,20 @@ describe("a narrow phone", () => {
     expect(css).toMatch(/\.bar\s*\{[^}]*flex-wrap:\s*wrap/);
   });
 });
+
+describe("the element as a browser makes it", () => {
+  it("leaves no attribute and no child from its constructor, and takes lang and dir only when opened", async () => {
+    await import("./src/index.js");
+    const made = document.createElement("ft-split");
+    expect([...made.attributes].map((one) => one.name)).toEqual([]);
+    expect(made.childNodes.length).toBe(0);
+    const core = fakeCore({ lang: "ar" });
+    globalThis.ft = core.ft;
+    document.body.append(made);
+    await core.open({ live: false });
+    await settle(made);
+    expect(made.getAttribute("lang")).toBe("ar");
+    expect(made.getAttribute("dir")).toBe("rtl");
+    expect(made.language).toBe("ar");
+  });
+});
