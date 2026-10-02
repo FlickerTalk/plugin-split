@@ -13,7 +13,9 @@ paid what and who owes whom — kept on each phone and joined live from a conver
   accounts that are only on this phone. They are never live and never shared, and Split says so.
 - **An expense**: the amount, what it was for, **who paid** (I, or the other person) and how it
   splits: **half each**, or **all of it for the one who did not pay**. Amounts can be typed with a
-  decimal comma or a decimal point (`12,50` or `12.50`).
+  decimal comma or a decimal point (`12,50` or `12.50`). While it is typed, the amount shows
+  below the field as it will be written ("= €1,250.00"), so a keypad without a decimal comma that
+  turns `12,50` into `1250` does not go unseen.
 - **The balance**, from your side: "Owes you €12.50", "You owe €12.50" or "All square".
 - **Settle up** records that the one who owes paid the balance, after asking inside the plugin.
 - **For two people.** Split knows no names: it says "I" and "the other person", or the nickname
@@ -76,7 +78,7 @@ encrypted over the direct connection.
 
 | Capability   | What for                                                                      |
 | ------------ | ----------------------------------------------------------------------------- |
-| `ft.records` | each account in two records, `split/<id>/meta` and `split/<id>/body`, written on every change (`storage: small`, 4 MB) |
+| `ft.records` | each account in two records, `split/<chat>/<id>/meta` and `split/<chat>/<id>/body` (`split/local/<id>/…` outside a conversation), written on every change (`storage: small`, 4 MB) |
 | `ft.live`    | live editing, 1 to 1, in messages of at most 48 KiB (bigger ones go in parts) |
 | `ft.say`     | 📤 (`send: propose`: the text lands in the composer and you send it)          |
 | `onOpen`     | `lang`; `live` (true only from a conversation, with live allowed); `chat`, the conversation's id |
@@ -89,8 +91,8 @@ Permissions: `{ "live": true, "send": "propose" }`. Needs FlickerTalk core **1.3
 **Per conversation.** `onOpen` gives `chat`: an opaque id of the conversation, 43 characters of
 `A-Z a-z 0-9 _ -`, the same each time Split is opened with that contact on this phone, different
 for every plugin, and this phone's own (the other phone has another, so it is never sent). It is
-the *place* an account is kept in: records are `split/<place>/<id>/meta` and
-`split/<place>/<id>/body` (at most 119 bytes, under the core's 128). Anything that is not exactly
+the *place* an account is kept in: records are `split/<chat>/<id>/meta` and
+`split/<chat>/<id>/body`, or `split/local/<id>/…` outside a conversation (at most 119 bytes, under the core's 128). Anything that is not exactly
 that shape, or no `chat` at all, is the place `local`: accounts of this phone only, never live
 (`local` cannot be a chat id: it is not 43 long). Split lists, opens, saves and deletes only within
 the place it was opened in, so an account id unknown there is unknown, even if it exists in another
