@@ -5,8 +5,12 @@ paid what and who owes whom — kept on each phone and joined live from a conver
 
 ## What it does
 
-- **Several accounts** on the phone ("Lisbon trip", "Flat"), each in **one currency**, chosen from
-  the currencies the phone's `Intl` knows.
+- **Several accounts** per conversation ("Lisbon trip", "Flat"), each in **one currency**, chosen
+  from the currencies the phone's `Intl` knows. Opened in a conversation, Split shows only that
+  conversation's accounts; an account shared with one person never appears in the conversation
+  with someone else.
+- **Accounts of this phone only**: opened outside a conversation (from Settings), Split keeps
+  accounts that are only on this phone. They are never live and never shared, and Split says so.
 - **An expense**: the amount, what it was for, **who paid** (I, or the other person) and how it
   splits: **half each**, or **all of it for the one who did not pay**. Amounts can be typed with a
   decimal comma or a decimal point (`12,50` or `12.50`).
@@ -57,6 +61,9 @@ encrypted over the direct connection.
 
 - Split sees its own accounts. It never sees the conversation, who the contact is, any payment
   data, or anything else on the phone, and it has no network.
+- It is told an opaque id of the conversation it was opened in (`chat`), only to keep each
+  conversation's accounts apart. The id does not say who the contact is, is this phone's own, and
+  Split never sends it: not over live, not in what 📤 puts in the composer.
 - Live messages go through the core's `ft.live`: only over the direct connection between the two
   phones, end-to-end encrypted like every message, never through the mailbox. If the connection is
   relayed by our TURN server, the server sees that there is traffic, never its content.
@@ -70,12 +77,23 @@ encrypted over the direct connection.
 | `ft.records` | each account in two records, `split/<id>/meta` and `split/<id>/body`, written on every change (`storage: small`, 4 MB) |
 | `ft.live`    | live editing, 1 to 1, in messages of at most 48 KiB (bigger ones go in parts) |
 | `ft.say`     | 📤 (`send: propose`: the text lands in the composer and you send it)          |
-| `onOpen`     | `lang`, and `live` (true only from a conversation, with live allowed)         |
+| `onOpen`     | `lang`; `live` (true only from a conversation, with live allowed); `chat`, the conversation's id |
 
-Permissions: `{ "live": true, "send": "propose" }`. Needs FlickerTalk core **1.1.0**
-(`minCoreVersion`). The contract is in [plugin-sdk](https://github.com/FlickerTalk/plugin-sdk).
+Permissions: `{ "live": true, "send": "propose" }`. Needs FlickerTalk core **1.3.0**
+(`minCoreVersion`), the first that tells a plugin which conversation it was opened in. The contract is in [plugin-sdk](https://github.com/FlickerTalk/plugin-sdk).
 
 ## How an account is kept
+
+**Per conversation.** `onOpen` gives `chat`: an opaque id of the conversation, 43 characters of
+`A-Z a-z 0-9 _ -`, the same each time Split is opened with that contact on this phone, different
+for every plugin, and this phone's own (the other phone has another, so it is never sent). It is
+the *place* an account is kept in: records are `split/<place>/<id>/meta` and
+`split/<place>/<id>/body` (at most 119 bytes, under the core's 128). Anything that is not exactly
+that shape, or no `chat` at all, is the place `local`: accounts of this phone only, never live
+(`local` cannot be a chat id: it is not 43 long). Split lists, opens, saves and deletes only within
+the place it was opened in, so an account id unknown there is unknown, even if it exists in another
+conversation: a hello that resumes it gets no answer, and a hello that does not resume makes a new,
+empty account there. The same id can live in two places without mixing.
 
 A [Yjs](https://github.com/yjs/yjs) document. `info` holds `name`, `currency` and `schema`;
 `expenses` is a map of id → map with `amount` (minor units), `what`, `paid`, `split` (`half` or
