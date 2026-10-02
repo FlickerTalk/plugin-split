@@ -52,6 +52,16 @@ describe("an account", () => {
     account.add({ amount: 100, what: "new", iPaid: true, split: HALF, now: 2 });
     expect(account.entries().map((one) => one.what)).toEqual(["new", "old"]);
   });
+
+  it("keeps the order things were added in, even within one millisecond", () => {
+    const account = new Account({ name: "x", currency: "EUR" });
+    for (const what of ["a", "b", "c"]) account.add({ amount: 100, what, iPaid: true, split: HALF, now: 5 });
+    const id = account.add({ amount: 100, what: "d", iPaid: true, split: HALF, now: 6 });
+    expect(account.entries().map((one) => [one.what, one.at])).toEqual([["d", 8], ["c", 7], ["b", 6], ["a", 5]]);
+    expect(account.entries()[0].id).toBe(id);
+    const settlement = account.settle({ now: 1 });
+    expect(account.entries().find((one) => one.id === settlement).at).toBe(9);
+  });
 });
 
 describe("the balance", () => {

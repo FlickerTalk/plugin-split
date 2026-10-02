@@ -170,7 +170,14 @@ export class Account {
     return id;
   }
 
+  /** Writes a new entry, always after the latest one, so the order holds within one millisecond. */
   write(id, fields) {
+    let latest = -Infinity;
+    for (const entry of this.expenses.values()) {
+      const at = entry instanceof Y.Map ? entry.get("at") : null;
+      if (typeof at === "number" && at > latest) latest = at;
+    }
+    fields.at = Math.max(fields.at, latest + 1);
     this.doc.transact(() => {
       const entry = new Y.Map();
       this.expenses.set(id, entry);
