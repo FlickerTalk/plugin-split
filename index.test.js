@@ -51,16 +51,31 @@ async function press(element, act, extra = "") {
   button.click();
   await settle(element);
 }
-/** Fills a form's fields by name and submits it. */
-async function fill(element, form, values) {
-  const node = inside(element).querySelector(`form[data-form="${form}"]`);
-  if (!node) throw new Error(`no form ${form}`);
+/** An Enter key on a field, as a keyboard sends it (`composing`: while a word is being composed). */
+const enter = (field, composing = false) => field.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, composed: true, cancelable: true, isComposing: composing }));
+
+/**
+ * Fills the fields of one action by name and does it as a finger would: the action's button
+ * (`click`), or Enter in its first field (`enter`, or `composing` for an Enter that only ends a
+ * word). Never a `submit` event: the plugin's frame is sandboxed without `allow-forms`, and
+ * Android's WebView blocks submitting a form there before any `submit` is fired.
+ */
+async function fill(element, form, values, how = "click") {
+  const node = inside(element).querySelector(`[data-form="${form}"]`);
+  if (!node) throw new Error(`no fields ${form}`);
   for (const [name, value] of Object.entries(typeof values === "string" ? { value: values } : values)) {
     const field = node.querySelector(`[name="${name}"]`);
     if (!field) throw new Error(`no field ${name} in ${form}`);
     field.value = value;
+    field.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
   }
-  node.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+  if (how === "click") {
+    const go = node.querySelector('[data-act="submit"]');
+    if (!go) throw new Error(`no button for ${form}`);
+    go.click();
+  } else {
+    enter(node.querySelector("input"), how === "composing");
+  }
   await settle(element);
 }
 const choose = (element, scope, field, value) => press(element, "choose", `[data-scope="${scope}"][data-field="${field}"][data-value="${value}"]`);
@@ -105,7 +120,7 @@ describe("one phone", () => {
     const element = await phone(core, { live: false });
     expect(inside(element).textContent).toContain("No accounts yet");
     expect(inside(element).textContent).toContain("For two people");
-    const currencies = [...inside(element).querySelectorAll('form[data-form="new"] select[name="currency"] option')].map((one) => one.value);
+    const currencies = [...inside(element).querySelectorAll('[data-form="new"] select[name="currency"] option')].map((one) => one.value);
     expect(currencies).toEqual(Intl.supportedValuesOf("currency"));
     await newAccount(element, "Lisboa");
     expect(inside(element).querySelector("[data-name]").textContent).toBe("Lisboa");
@@ -319,7 +334,7 @@ describe("two phones", () => {
     await spend(a, "10", "Coffee");
     await idle();
     expect(rows(b)).toEqual(["Coffee €10.00 | Ana paid · ½ Half each"]);
-    expect(inside(b).querySelector('form[data-form="nick"] input').value).toBe("");
+    expect(inside(b).querySelector('[data-form="nick"] input').value).toBe("");
   });
 
   it("keep what each did offline and join it when one goes live again", async () => {
@@ -884,12 +899,107 @@ describe("icons, not emoji", () => {
     expect(OWN_ICONS).toEqual(expect.arrayContaining(["sync-outline", "cash-outline", "people-outline", "phone-portrait-outline", "checkmark-circle-outline", "alert-circle-outline"]));
   });
 
+  it("paints no <form> anywhere: the sandboxed frame on Android would block it", async () => {
+    for (const html of await everyScreen()) expect(html).not.toMatch(/<form[\s>]/i);
+  });
+
   it("keeps its emoji only in the text it proposes for the chat", async () => {
     const core = fakeCore();
     const element = await phone(core);
     await newAccount(element, "Lisboa");
     await press(element, "send");
     expect(core.said[0]).toMatch(/^🧾 Lisboa · .* · we're even ✅$/u);
+  });
+});
+
+describe("found on Android phones", () => {
+  it("does each action with its button and with Enter, with no form to submit", async () => {
+    for (const how of ["click", "enter"]) {
+      const core = fakeCore();
+      const element = await phone(core);
+      await fill(element, "new", { value: "Lisboa", currency: "EUR" }, how);
+      expect(element.account?.name, how).toBe("Lisboa");
+      await choose(element, "add", "paid", "me");
+      await fill(element, "add", { amount: "10", what: "Dinner" }, how);
+      expect(rows(element), how).toEqual(["Dinner €10.00 | I paid · ½ Half each"]);
+      await press(element, "edit", `[data-id="${entryId(element, "Dinner")}"]`);
+      await fill(element, "edit", { amount: "12", what: "Dinner out" }, how);
+      expect(rows(element), how).toEqual(["Dinner out €12.00 | I paid · ½ Half each"]);
+      await press(element, "rename");
+      await fill(element, "rename", "Oporto", how);
+      expect(inside(element).querySelector("[data-name]").textContent, how).toBe("Oporto");
+      await fill(element, "nick", "Ana", how);
+      expect(element.account.nick, how).toBe("Ana");
+      await press(element, "settle");
+      await press(element, "confirmSettle");
+      expect(balanceOf(element), how).toBe("All square");
+      expect(inside(element).querySelector("form"), how).toBeNull();
+      document.body.innerHTML = "";
+    }
+  });
+
+  it("does not take the Enter that only ends a composed word", async () => {
+    const element = await phone(fakeCore());
+    await fill(element, "new", { value: "Lisboa" }, "composing");
+    expect(element.account).toBeNull();
+    await fill(element, "new", { value: "Lisboa" }, "enter");
+    expect(element.account?.name).toBe("Lisboa");
+  });
+
+  /** Types an amount as a keyboard does: the value changes and an `input` event follows. */
+  async function type(element, value, form = "add") {
+    const field = inside(element).querySelector(`[data-form="${form}"] [name="amount"]`);
+    field.value = value;
+    field.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
+    await settle(element);
+    return plain(inside(element).querySelector(`[data-form="${form}"] [data-preview]`).textContent);
+  }
+  const money = (lang, currency, value) => plain(new Intl.NumberFormat(lang, { style: "currency", currency }).format(value));
+
+  it("shows the amount as it will be written while it is typed, in the account's currency", async () => {
+    const element = await phone(fakeCore());
+    await newAccount(element, "Lisboa");
+    expect(plain(inside(element).querySelector('[data-form="add"] [data-preview]').textContent)).toBe("");
+    expect(await type(element, "1")).toBe("= €1.00");
+    expect(await type(element, "12")).toBe("= €12.00");
+    expect(await type(element, "12,5")).toBe("= €12.50");
+    expect(await type(element, "12,50")).toBe("= €12.50");
+    expect(await type(element, "12.50")).toBe("= €12.50");
+    // The Samsung keypad has no comma: "12,50" typed as "1250" shows what it really is.
+    expect(await type(element, "1250")).toBe("= €1,250.00");
+    expect(await type(element, "12,505")).toContain("Write an amount like 12.50");
+    expect(await type(element, "")).toBe("");
+    // The button does nothing with an amount that is not one.
+    await type(element, "12,505");
+    inside(element).querySelector('[data-form="add"] [data-act="submit"]').click();
+    await settle(element);
+    expect(rows(element)).toEqual([]);
+    // The same while editing an expense.
+    await fill(element, "add", { amount: "10", what: "Dinner" });
+    await press(element, "edit", `[data-id="${entryId(element, "Dinner")}"]`);
+    expect(await type(element, "30,5", "edit")).toBe("= €30.50");
+  });
+
+  it("shows it in the phone's language, and with each currency's decimals", async () => {
+    const spanish = await phone(fakeCore({ lang: "es" }));
+    await newAccount(spanish, "Lisboa");
+    expect(await type(spanish, "1250")).toBe(`= ${money("es", "EUR", 1250)}`);
+    expect(await type(spanish, "12,5")).toBe(`= ${money("es", "EUR", 12.5)}`);
+    const yen = await phone(fakeCore());
+    await newAccount(yen, "Tokio", "JPY");
+    expect(await type(yen, "1.500")).toBe("= ¥1,500");
+    expect(await type(yen, "15,5")).toContain("Write an amount like 1250");
+    const dinar = await phone(fakeCore());
+    await newAccount(dinar, "Kuwait", "KWD");
+    expect(await type(dinar, "1,25")).toBe(`= ${money("en", "KWD", 1.25)}`);
+    expect(await type(dinar, "1,25")).toContain("1.250");
+  });
+
+  it("keeps a comfortable width on a tablet, and the phone as it was", async () => {
+    const element = await phone(fakeCore());
+    const css = inside(element).querySelector("style").textContent;
+    expect(css).toMatch(/\.view\s*\{[^}]*max-inline-size:\s*640px/);
+    expect(css).toMatch(/\.view\s*\{[^}]*margin-inline:\s*auto/);
   });
 });
 

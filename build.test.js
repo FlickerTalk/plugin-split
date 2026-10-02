@@ -62,10 +62,10 @@ describe("the package", () => {
     const element = document.createElement("ft-split");
     document.body.append(element);
     await core.open({ live: false });
-    const form = element.shadowRoot.querySelector('form[data-form="new"]');
-    form.querySelector("input").value = "Lisboa";
-    form.querySelector("select").value = "JPY";
-    form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    const fields = element.shadowRoot.querySelector('[data-form="new"]');
+    fields.querySelector("input").value = "Lisboa";
+    fields.querySelector("select").value = "JPY";
+    fields.querySelector('[data-act="submit"]').click();
     for (let at = 0; at < 50; at += 1) await Promise.resolve();
     await element.keeper.settled();
     expect(element.shadowRoot.querySelector("[data-name]").textContent).toBe("Lisboa");
