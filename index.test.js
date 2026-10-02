@@ -441,13 +441,18 @@ describe("two phones", () => {
   it("send only messages under the core's 48 KiB", async () => {
     const { a, b, link, idle } = await twoPhones();
     await newAccount(a, "Big");
-    for (let at = 0; at < 300; at += 1) a.account.add({ amount: 100 + at, what: `${"expense ".repeat(9)}${at}`, iPaid: true, split: "half" });
+    // One transaction: the test is about a document too big for one message, not about 300
+    // separate changes (each would redraw the whole list with the view mounted).
+    a.account.doc.transact(() => {
+      for (let at = 0; at < 300; at += 1) a.account.add({ amount: 100 + at, what: `${"expense ".repeat(9)}${at}`, iPaid: true, split: "half" });
+    });
     await settle(a);
     await press(a, "live");
     await idle();
     expect(b.account.entries()).toHaveLength(300);
     for (const { data } of link.carried) expect(atob(data).length).toBeLessThanOrEqual(48 * 1024);
     expect(link.carried.every(({ data }) => decode(data, "ftsplit"))).toBe(true);
+    expect(link.carried.some(({ data }) => decode(data, "ftsplit").k === "part")).toBe(true);
   });
 });
 
