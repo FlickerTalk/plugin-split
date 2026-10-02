@@ -63,7 +63,7 @@ describe("the package", () => {
     await element.keeper.settled();
     expect(element.shadowRoot.querySelector("[data-name]").textContent).toBe("Lisboa");
     expect(element.account.currency).toBe("JPY");
-    expect([...core.records.keys()].sort()).toEqual([`split/${element.account.id}/body`, `split/${element.account.id}/meta`]);
+    expect([...core.records.keys()].sort()).toEqual([`split/local/${element.account.id}/body`, `split/local/${element.account.id}/meta`]);
   });
 
   it("carries the licence of everything inside the bundle", () => {

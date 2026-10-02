@@ -6,12 +6,16 @@
 // apart is kept here and joins the other's when both have it open. 📤 puts a summary in the
 // composer, said by whoever sends it. Nothing leaves this frame but what the user sends, and what
 // live says to the same plugin on the other phone.
+//
+// Accounts are kept per conversation: the core's `chat` id (this phone's own, never sent) is the
+// place they live in, and an account shared in one conversation does not exist in another. Opened
+// outside a conversation, Split keeps accounts of this phone only, never live.
 
 import { name as APP_NAME, version as APP_VERSION } from "../module.json";
 import { dirOf, makeT } from "./i18n.js";
 import { HELLO, Inbox, LiveSession, inOrder, isNewer } from "./live.js";
 import { yjsReplica } from "./live-yjs.js";
-import { ALL, Account, HALF, MAX_NAME, MAX_NICK, MAX_WHAT, SETTLE } from "./model.js";
+import { ALL, Account, HALF, LOCAL_PLACE, MAX_NAME, MAX_NICK, MAX_WHAT, SETTLE, placeOf } from "./model.js";
 import { currencies, formatMoney, isCurrency, parseAmount, toDecimal } from "./money.js";
 import { Keeper } from "./store.js";
 import { STRINGS } from "./strings.js";
@@ -105,8 +109,8 @@ class SplitElement extends HTMLElement {
 
   connectedCallback() {
     this.ft = globalThis.ft;
-    this.keeper = new Keeper(this.ft.records);
-    this.keeper.onFull(() => this.paintWarning());
+    this.place = LOCAL_PLACE;
+    this.keeper = this.makeKeeper(LOCAL_PLACE);
     this.inbox = new Inbox(FORMAT);
     this.root.innerHTML = `<style>${STYLE}</style><div class="view"></div>`;
     this.view = this.root.querySelector(".view");
@@ -117,6 +121,13 @@ class SplitElement extends HTMLElement {
     // The frame does not wait for one message to be handled before handing the next.
     this.ft.live?.onMessage?.(inOrder((data) => this.onLive(data)));
     this.paint();
+  }
+
+  /** The keeper of one place: it sees only the accounts kept there. */
+  makeKeeper(place) {
+    const keeper = new Keeper(this.ft.records, place);
+    keeper.onFull(() => this.paintWarning());
+    return keeper;
   }
 
   T(key, holes = {}) {
@@ -163,7 +174,15 @@ class SplitElement extends HTMLElement {
 
   async onOpen(opening) {
     this.lang = opening.lang || "en";
-    this.mayLive = Boolean(opening.live);
+    const place = placeOf(opening.chat);
+    if (place !== this.place) {
+      await this.leave();
+      this.screen = "home";
+      this.place = place;
+      this.keeper = this.makeKeeper(place);
+    }
+    // Live needs a conversation to keep the account in: without a valid chat, never live.
+    this.mayLive = Boolean(opening.live) && place !== LOCAL_PLACE;
     this.setAttribute("lang", this.lang);
     this.setAttribute("dir", dirOf(this.lang));
     this.metas = await this.keeper.index();
@@ -271,6 +290,8 @@ class SplitElement extends HTMLElement {
 
   /** What the twin says: for the live account, or a hello for one that is not live here. */
   async onLive(data) {
+    // Outside a conversation nothing is live: what arrives is not for this place.
+    if (!this.mayLive) return;
     const message = this.inbox.take(data);
     if (!message) return;
     if (this.session && message.doc === this.session.doc) {
@@ -547,6 +568,7 @@ class SplitElement extends HTMLElement {
     return `
       <div class="bar"><h1 class="grow">${escape(T("title"))}</h1>${button("close", T("close"), "close-outline")}</div>
       <p class="hint">👥 ${escape(T("forTwo"))}</p>
+      ${this.place === LOCAL_PLACE ? `<p class="hint" data-local>📱 ${escape(T("localOnly"))}</p>` : ""}
       <form data-form="new"><input name="value" maxlength="${MAX_NAME}" autocomplete="off" placeholder="${escape(T("namePlaceholder"))}" aria-label="${escape(T("newAccount"))}"><select name="currency" aria-label="${escape(T("currency"))}">${options}</select><button type="submit" aria-label="${escape(T("newAccount"))}">${icon("add-outline")}</button></form>
       ${rows ? `<ul>${rows}</ul>` : `<p class="empty">${escape(T("empty"))}</p>`}`;
   }

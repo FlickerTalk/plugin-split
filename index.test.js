@@ -6,8 +6,8 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { FORMAT } from "./src/index.js";
-import { HELLO, UPDATE, VERSION, decode, encode } from "./src/live.js";
-import { Account, bodyKey, metaKey } from "./src/model.js";
+import { HELLO, Inbox, UPDATE, VERSION, decode, encode, fromBase64 } from "./src/live.js";
+import { Account, LOCAL_PLACE, bodyKey, metaKey } from "./src/model.js";
 import { connect, fakeCore } from "./test/fake-core.js";
 
 const manifest = JSON.parse(readFileSync(join(import.meta.dirname, "module.json"), "utf8"));
@@ -19,12 +19,21 @@ const flush = async () => {
   for (let at = 0; at < 60; at += 1) await Promise.resolve();
 };
 
-/** One phone with the plugin open: `live` when opened from a conversation with it granted. */
+/** A conversation's id as the core gives it in `onOpen`: 43 of `A-Z a-z 0-9 _ -`. */
+const chat = (tag) => tag.padEnd(43, "x");
+let phones = 0;
+
+/**
+ * One phone with the plugin open: `live` when opened from a conversation with it granted. Opened
+ * live, it is in that phone's conversation (its `chat`, the same each time) unless told another.
+ */
 async function phone(core, opening = { live: true }) {
+  core.chat ??= chat(`phone${(phones += 1)}`);
+  const given = opening.live && !("chat" in opening) ? { ...opening, chat: core.chat } : opening;
   globalThis.ft = core.ft;
   const element = document.createElement("ft-split");
   document.body.append(element);
-  await core.open(opening);
+  await core.open(given);
   await flush();
   return element;
 }
@@ -74,12 +83,12 @@ afterEach(() => {
 });
 
 describe("the manifest", () => {
-  it("asks for live and to propose a text, nothing more, on core 1.1.0", () => {
+  it("asks for live and to propose a text, nothing more, on core 1.3.0 (which tells the conversation)", () => {
     expect(manifest).toEqual({
       id: "com.flickertalk.split",
       name: "Split",
       version: "1.0.0",
-      minCoreVersion: "1.1.0",
+      minCoreVersion: "1.3.0",
       components: ["ft-split"],
       permissions: { live: true, send: "propose" },
       summary: expect.any(String),
@@ -107,7 +116,7 @@ describe("one phone", () => {
     expect(rows(element)).toEqual(["Museum €8.40 | The other person paid · All for me", "Dinner €12.50 | I paid · ½ Half each"]);
     expect(balanceOf(element)).toBe("You owe €2.15");
     const id = element.account.id;
-    const kept = Account.parse(id, core.records.get(bodyKey(id)), core.records.get(metaKey(id)));
+    const kept = Account.parse(id, core.records.get(bodyKey(LOCAL_PLACE, id)), core.records.get(metaKey(LOCAL_PLACE, id)));
     expect(kept.totals()).toEqual({ total: 2090, mine: 1250, theirs: 840, balance: -215 });
     expect(kept.currency).toBe("EUR");
 
@@ -120,7 +129,7 @@ describe("one phone", () => {
     await press(element, "edit", `[data-id="${entryId(element, "Museum tickets")}"]`);
     await press(element, "remove");
     expect(rows(element)).toEqual(["Dinner €12.50 | I paid · ½ Half each"]);
-    expect(Account.parse(id, core.records.get(bodyKey(id))).entries()).toHaveLength(1);
+    expect(Account.parse(id, core.records.get(bodyKey(LOCAL_PLACE, id))).entries()).toHaveLength(1);
 
     await press(element, "back");
     expect(plain(inside(element).querySelector("[data-act=open]").textContent)).toContain("Owes you €6.25");
@@ -280,9 +289,9 @@ describe("two phones", () => {
     expect(rows(a)[0]).toBe("Taxi €10.00 | The other person paid · All for me");
     expect(balanceOf(a)).toBe("Owes you €5.00");
     expect(balanceOf(b)).toBe("You owe €5.00");
-    const kept = Account.parse(b.account.id, coreB.records.get(bodyKey(b.account.id)), coreB.records.get(metaKey(b.account.id)));
+    const kept = Account.parse(b.account.id, coreB.records.get(bodyKey(coreB.chat, b.account.id)), coreB.records.get(metaKey(coreB.chat, b.account.id)));
     expect(kept.totals().balance).toBe(-500);
-    expect(JSON.parse(coreB.records.get(metaKey(b.account.id)))).toMatchObject({ shared: true, currency: "EUR" });
+    expect(JSON.parse(coreB.records.get(metaKey(coreB.chat, b.account.id)))).toMatchObject({ shared: true, currency: "EUR" });
   });
 
   it("each propose the summary from their own side, in their own language", async () => {
@@ -479,48 +488,48 @@ describe("a third person", () => {
     } };
   }
 
-  it("cannot join an account two people share: going live from it with someone else only resumes with the first", async () => {
+  it("does not see a shared account in another conversation, and going live again from it only resumes with the same person", async () => {
     vi.useFakeTimers();
     const { coreA, coreB, coreC, a, b, c, relink, idle } = await shared();
     const id = a.account.id;
     const peer = a.account.peer;
     expect(peer).toBe(b.account.who);
-    // A leaves, and opens Split again in the conversation with C.
+    // A opens Split in the conversation with C: that conversation has its own accounts.
     await press(a, "close");
     document.body.removeChild(a);
     coreA.reload();
     relink(coreC);
     const mark = coreA.sent.length;
-    const again = await phone(coreA);
-    // Entering a shared account resumes on its own; C does not answer.
-    await press(again, "open", `[data-id="${id}"]`);
-    await idle(again, c);
+    const withC = await phone(coreA, { live: true, chat: chat("withC") });
+    await idle(withC, c);
+    expect(inside(withC).querySelector(`[data-id="${id}"]`)).toBeNull();
+    expect(inside(withC).textContent).toContain("No accounts yet");
+    expect(coreA.sent.slice(mark)).toEqual([]);
+    expect(c.account).toBeNull();
+    expect(coreC.records.size).toBe(0);
+    expect(coreC.sent).toHaveLength(0);
+    // Back in the conversation with B, with B's Split closed: A resumes, nobody answers.
+    await press(withC, "close");
+    document.body.removeChild(withC);
+    coreA.reload();
+    relink(coreB);
+    coreB.shut();
+    const back = await phone(coreA);
+    await press(back, "open", `[data-id="${id}"]`);
+    await idle(back, b);
     await vi.advanceTimersByTimeAsync(8000);
-    await settle(again);
-    expect(statusOf(again)).toContain("doesn't have Split open in this conversation");
-    // The user presses 🔄 anyway: it only resumes with B, and C still gets nothing.
-    await press(again, "live");
-    await idle(again, c);
+    await settle(back);
+    expect(statusOf(back)).toContain("doesn't have Split open in this conversation");
+    // B opens it again; the user presses 🔄: it only ever resumes, and B answers.
+    coreB.listening = true;
+    await press(back, "live");
+    await idle(back, b);
     const hellos = coreA.sent.slice(mark).map((data) => decode(data, "ftsplit")).filter((one) => one?.k === HELLO);
     expect(hellos).toHaveLength(2);
     for (const hello of hellos) expect(hello).toMatchObject({ resume: true, doc: id });
     for (const hello of hellos) expect(hello.title).toBeUndefined();
-    expect(c.account).toBeNull();
-    expect(coreC.records.size).toBe(0);
-    expect(coreC.sent).toHaveLength(0);
-    await vi.advanceTimersByTimeAsync(8000);
-    await settle(again);
-    expect(statusOf(again)).toContain("doesn't have Split open in this conversation");
-    expect(again.account.peer).toBe(peer);
-    expect(JSON.parse(coreA.records.get(metaKey(id))).peer).toBe(peer);
-    // Back in the conversation with B: they keep in step.
-    await press(again, "close");
-    document.body.removeChild(again);
-    coreA.reload();
-    relink(coreB);
-    const back = await phone(coreA);
-    await press(back, "open", `[data-id="${id}"]`);
-    await idle(back, b);
+    expect(back.account.peer).toBe(peer);
+    expect(JSON.parse(coreA.records.get(metaKey(coreA.chat, id))).peer).toBe(peer);
     expect(statusOf(back)).toContain("Live");
     await spend(b, "10", "Taxi");
     await idle(back, b);
@@ -548,7 +557,7 @@ describe("a third person", () => {
     await idle(a);
     expect(coreA.sent.slice(before)).toEqual([]);
     expect(a.account).toBeNull();
-    expect(JSON.parse(coreA.records.get(metaKey(id))).peer).toBe(peer);
+    expect(JSON.parse(coreA.records.get(metaKey(coreA.chat, id))).peer).toBe(peer);
   });
 
   it("shows a warning instead of a balance when the account holds more than two people, and offers neither 💸 nor 📤", async () => {
@@ -561,8 +570,8 @@ describe("a third person", () => {
       const { encodeStateAsUpdate, applyUpdate } = await import("yjs");
       applyUpdate(first.doc, encodeStateAsUpdate(other.doc));
     }
-    core.records.set(bodyKey(first.id), first.body());
-    core.records.set(metaKey(first.id), first.meta());
+    core.records.set(bodyKey(LOCAL_PLACE, first.id), first.body());
+    core.records.set(metaKey(LOCAL_PLACE, first.id), first.meta());
     const element = await phone(core, { live: false });
     expect(plain(inside(element).querySelector("[data-act=open]").textContent)).toContain("more than two people");
     await press(element, "open");
@@ -573,3 +582,144 @@ describe("a third person", () => {
     expect(plain(inside(element).querySelector("[data-total]").textContent)).toBe("Total spent: €50.00");
   });
 });
+
+describe("conversations", () => {
+  const reopen = async (core, element, opening) => {
+    await press(element, "close");
+    document.body.removeChild(element);
+    core.reload();
+    return phone(core, opening);
+  };
+  const names = (element) => [...inside(element).querySelectorAll("[data-act=open] .title")].map((one) => one.textContent);
+  const KEY = /^split\/(local|[A-Za-z0-9_-]{43})\/[A-Za-z0-9_-]{1,64}\/(meta|body)$/;
+
+  it("keep their own accounts: one chat's are not in another's, nor outside any conversation", async () => {
+    const core = fakeCore();
+    const one = await phone(core, { live: true, chat: chat("one") });
+    await newAccount(one, "Lisboa");
+    await spend(one, "10", "Dinner");
+    expect([...core.records.keys()].sort()).toEqual([`split/${chat("one")}/${one.account.id}/body`, `split/${chat("one")}/${one.account.id}/meta`]);
+    const two = await reopen(core, one, { live: true, chat: chat("two") });
+    expect(names(two)).toEqual([]);
+    expect(inside(two).textContent).toContain("No accounts yet");
+    await newAccount(two, "Oporto");
+    const local = await reopen(core, two, { live: false });
+    expect(names(local)).toEqual([]);
+    await newAccount(local, "Mine");
+    expect(core.records.has(`split/local/${local.account.id}/meta`)).toBe(true);
+    const back = await reopen(core, local, { live: true, chat: chat("one") });
+    expect(names(back)).toEqual(["Lisboa"]);
+    await press(back, "open");
+    expect(rows(back)).toEqual(["Dinner €10.00 | I paid · ½ Half each"]);
+    for (const key of core.records.keys()) expect(key).toMatch(KEY);
+    expect(core.records.size).toBe(6);
+  });
+
+  it("take no chat, or a chat id of any other shape, as no conversation: this phone only, never live", async () => {
+    for (const opening of [{ live: true, chat: undefined }, { live: true, chat: "short" }, { live: true, chat: `${"x".repeat(42)}/` }, { live: true, chat: `${"x".repeat(42)}.` }, { live: true, chat: "x".repeat(44) }, { live: false, chat: chat("granted not") }]) {
+      const core = fakeCore();
+      const element = await phone(core, opening);
+      expect(inside(element).textContent).toContain("only on this phone");
+      // What arrives over live is ignored: no account, no answer.
+      await core.hear(encode({ p: "ftsplit", v: VERSION, k: HELLO, doc: "someone", who: "w", app: "1.0.0", sv: "AA==", title: "From live" }));
+      await settle(element);
+      expect(element.account).toBeNull();
+      await newAccount(element, "Mine");
+      await spend(element, "5", "Coffee");
+      expect(inside(element).querySelector('[data-act="live"]')).toBeNull();
+      expect(inside(element).textContent).toContain("To share it, open Split from a conversation");
+      await core.hear(encode({ p: "ftsplit", v: VERSION, k: HELLO, doc: element.account.id, who: "w", app: "1.0.0", sv: "AA==", title: "x" }));
+      await core.hear(encode({ p: "ftsplit", v: VERSION, k: HELLO, doc: element.account.id, who: "w", app: "1.0.0", sv: "AA==", resume: true }));
+      await settle(element);
+      expect(inside(element).querySelector("[data-invite]").textContent).toBe("");
+      expect(core.sent).toEqual([]);
+      expect([...core.records.keys()].every((key) => key.startsWith("split/local/"))).toBe(true);
+      document.body.innerHTML = "";
+    }
+  });
+
+  it("do not say the account is this phone's only when opened in one", async () => {
+    const element = await phone(fakeCore());
+    expect(inside(element).textContent).not.toContain("only on this phone");
+  });
+
+  it("stop the attack: a resumed hello for an account shared in another conversation gets nothing", async () => {
+    // A shares "X" with C, in their conversation.
+    const coreA = fakeCore();
+    const coreC = fakeCore();
+    let link = connect(coreA, coreC);
+    const a = await phone(coreA);
+    let c = await phone(coreC);
+    await newAccount(a, "X");
+    await spend(a, "30", "Secret hotel");
+    await press(a, "live");
+    await link.idle();
+    await settle(a, c);
+    const id = a.account.id;
+    const whoA = a.account.who;
+    expect(c.account.id).toBe(id);
+    expect(c.account.entries()).toHaveLength(1);
+    // Later C has Split open in the conversation with B, and B's modified app poses as A.
+    const coreB = fakeCore();
+    link = connect(coreB, coreC);
+    c = await reopen(coreC, c, { live: true, chat: chat("CwithB") });
+    const mark = coreC.sent.length;
+    await coreC.hear(encode({ p: "ftsplit", v: VERSION, k: HELLO, doc: id, who: whoA, app: "1.0.0", sv: "AA==", resume: true }));
+    await link.idle();
+    await settle(c);
+    expect(coreC.sent.slice(mark)).toEqual([]);
+    expect(c.account).toBeNull();
+    expect(names(c)).toEqual([]);
+    // A hello that does not resume makes a new, empty account in this conversation, with nothing of C's.
+    await coreC.hear(encode({ p: "ftsplit", v: VERSION, k: HELLO, doc: id, who: whoA, app: "1.0.0", sv: "AA==", title: "X" }));
+    await link.idle();
+    await settle(c);
+    expect(c.account.id).toBe(id);
+    expect(c.account.entries()).toEqual([]);
+    const replies = coreC.sent.slice(mark).map((data) => decode(data, "ftsplit"));
+    expect(replies.length).toBeGreaterThan(0);
+    for (const reply of replies) {
+      expect(reply.u).toBeUndefined();
+      expect(JSON.stringify(reply)).not.toContain("Secret");
+    }
+    // C's copy in the conversation with A is untouched; the two never mix.
+    expect(Account.parse(id, coreC.records.get(bodyKey(coreC.chat, id))).entries().map((one) => one.what)).toEqual(["Secret hotel"]);
+    const here = coreC.records.get(bodyKey(chat("CwithB"), id));
+    if (here) expect(Account.parse(id, here).entries()).toEqual([]);
+  });
+
+  it("never let the chat id leave the phone: not in what live carries, nor in the summary", async () => {
+    const { coreA, coreB, link, a, b, idle } = await twoPhones();
+    await newAccount(a, "Lisboa");
+    await spend(a, "30", "Hotel");
+    await press(a, "live");
+    await idle();
+    await spend(b, "12,40", "Taxi", "me", "all");
+    await fill(a, "nick", "Ana");
+    await fill(b, "nick", "Luis");
+    await idle();
+    await press(a, "settle");
+    await press(a, "confirmSettle");
+    await idle();
+    await press(b, "send");
+    await idle();
+    await press(a, "send");
+    const secrets = [coreA.chat, coreB.chat];
+    expect(secrets.every((one) => /^[A-Za-z0-9_-]{43}$/.test(one))).toBe(true);
+    const inbox = new Inbox("ftsplit");
+    const seen = [];
+    for (const { data } of link.carried) {
+      seen.push(data, new TextDecoder().decode(fromBase64(data)));
+      const message = inbox.take(data);
+      if (!message) continue;
+      seen.push(JSON.stringify(message));
+      for (const field of ["u", "sv"]) if (typeof message[field] === "string") seen.push(String.fromCharCode(...fromBase64(message[field])));
+    }
+    seen.push(...coreA.said, ...coreB.said);
+    expect(link.carried.length).toBeGreaterThan(4);
+    expect(coreA.said).toHaveLength(1);
+    expect(coreB.said).toHaveLength(1);
+    for (const text of seen) for (const secret of secrets) expect(text.includes(secret)).toBe(false);
+  });
+});
+
