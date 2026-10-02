@@ -33,8 +33,10 @@ const escape = (text) =>
 
 const STYLE = `
 :host { display: block; font: 15px system-ui, sans-serif; color: #111; --paper: #fff; --line: #d8d8d8; --soft: #666; --accent: #e0562b; --good: #1f8a4c; }
+/* Dark when the app says so (the attribute, set in onOpen, which WebKit understands), or, as a
+   fallback while the app always says light, when the system is dark. */
 @media (prefers-color-scheme: dark) { :host { color: #f4f4f4; --paper: #111; --line: #3a3a3a; --soft: #aaa; --good: #5fd08f; } }
-:host-context([data-dark]) { color: #f4f4f4; --paper: #111; --line: #3a3a3a; --soft: #aaa; --good: #5fd08f; }
+:host([dark]) { color: #f4f4f4; --paper: #111; --line: #3a3a3a; --soft: #aaa; --good: #5fd08f; }
 * { box-sizing: border-box; }
 .bar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 4px 0 8px; }
 .grow { flex: 1; min-width: 0; }
@@ -184,6 +186,8 @@ class SplitElement extends HTMLElement {
     // Live needs a conversation to keep the account in: without a valid chat, never live.
     this.mayLive = Boolean(opening.live) && place !== LOCAL_PLACE;
     this.setAttribute("lang", this.lang);
+    if (opening.dark) this.setAttribute("dark", "");
+    else this.removeAttribute("dark");
     this.setAttribute("dir", dirOf(this.lang));
     this.metas = await this.keeper.index();
     this.paint();
@@ -504,9 +508,17 @@ class SplitElement extends HTMLElement {
     return [`🧾 ${account.name || this.pendingTitle || this.T("untitled")}`, this.T("sumTotal", { amount: this.money(total) }), this.T("sumMine", { amount: this.money(mine) }), this.T("sumTheirs", { amount: this.money(theirs) }), owe].join(" · ");
   }
 
-  /** 📤: the summary in the composer. The app closes the plugin, so leave cleanly first. */
+  /** Whether there is a composer to put the summary in: only in a conversation. */
+  get maySay() {
+    return this.place !== LOCAL_PLACE;
+  }
+
+  /**
+   * 📤: the summary in the composer. The app closes the plugin, so leave cleanly first. Outside a
+   * conversation there is no composer: nothing happens, and the account stays on screen.
+   */
   async sendSummary() {
-    if (!this.account?.ready || this.account.crowded) return;
+    if (!this.maySay || !this.account?.ready || this.account.crowded) return;
     const text = this.summary();
     await this.leave();
     this.ft.say(text);
@@ -612,7 +624,7 @@ class SplitElement extends HTMLElement {
       ${title}
       ${!this.renaming && account.writable ? button("rename", T("rename"), "pencil-outline") : ""}
       ${this.mayLive && !account.readOnly ? `<button type="button" data-act="live" class="${live ? "on" : ""}" aria-pressed="${live ? "true" : "false"}" aria-label="${escape(live ? T("stopLive") : T("live"))}">🔄 ${escape(T("live"))}</button>` : ""}
-      ${account.ready && !account.crowded ? button("send", T("send"), "send-outline") : ""}
+      ${this.maySay && account.ready && !account.crowded ? button("send", T("send"), "send-outline") : ""}
       ${button("close", T("close"), "close-outline")}`;
   }
 

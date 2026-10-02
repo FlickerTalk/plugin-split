@@ -203,7 +203,8 @@ describe("one phone", () => {
 
   it("proposes the summary in the chat, written from the sender's side and in their language", async () => {
     const core = fakeCore({ lang: "es" });
-    const element = await phone(core, { live: false });
+    // In a conversation: outside one there is no composer to put it in.
+    const element = await phone(core, { live: true });
     await newAccount(element, "Lisboa");
     await spend(element, "200", "Piso", "me", "half");
     await spend(element, "112,40", "Coche", "other", "half");
@@ -720,6 +721,50 @@ describe("conversations", () => {
     expect(coreA.said).toHaveLength(1);
     expect(coreB.said).toHaveLength(1);
     for (const text of seen) for (const secret of secrets) expect(text.includes(secret)).toBe(false);
+  });
+});
+
+describe("found in the iOS simulator", () => {
+  it("offers no ➤ outside a conversation, and sending there does nothing and leaves the account usable", async () => {
+    const core = fakeCore();
+    const element = await phone(core, { live: false });
+    await newAccount(element, "Mine");
+    await spend(element, "10", "Dinner");
+    expect(inside(element).querySelector('[data-act="send"]')).toBeNull();
+    await element.sendSummary();
+    await settle(element);
+    expect(core.ft.say).not.toHaveBeenCalled();
+    expect(element.account?.name).toBe("Mine");
+    await spend(element, "4", "Coffee");
+    expect(rows(element)).toHaveLength(2);
+  });
+
+  it("offers ➤ in a conversation, even without live allowed, and it puts the summary in the composer", async () => {
+    const core = fakeCore();
+    const element = await phone(core, { live: false, chat: chat("noLive") });
+    await newAccount(element, "Lisboa");
+    await spend(element, "10", "Dinner");
+    expect(inside(element).querySelector('[data-act="live"]')).toBeNull();
+    await press(element, "send");
+    expect(core.ft.say).toHaveBeenCalledTimes(1);
+    expect(plain(core.said[0])).toBe("🧾 Lisboa · total €10.00 · I paid €10.00 · you €0.00 · you owe me €5.00");
+  });
+
+  it("goes dark when the app says so, with an attribute WebKit understands", async () => {
+    const dark = await phone(fakeCore(), { live: false, dark: true });
+    expect(dark.hasAttribute("dark")).toBe(true);
+    const light = await phone(fakeCore(), { live: false, dark: false });
+    expect(light.hasAttribute("dark")).toBe(false);
+    // Opened again light, the attribute goes.
+    const core = fakeCore();
+    const again = await phone(core, { live: false, dark: true });
+    await core.open({ live: false, dark: false });
+    await settle(again);
+    expect(again.hasAttribute("dark")).toBe(false);
+    const css = inside(dark).querySelector("style").textContent;
+    expect(css).toContain(":host([dark])");
+    expect(css).toContain("prefers-color-scheme: dark");
+    expect(css).not.toContain(":host-context");
   });
 });
 
