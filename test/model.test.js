@@ -4,7 +4,7 @@
 // copies edited apart that join; and the records it is kept in.
 import { describe, expect, it } from "vitest";
 import * as Y from "yjs";
-import { ALL, Account, HALF, MAX_NAME, MAX_WHAT, PREFIX, SCHEMA, SETTLE, bodyKey, metaKey } from "../src/model.js";
+import { ALL, Account, HALF, LOCAL_PLACE, MAX_NAME, MAX_WHAT, PREFIX, SCHEMA, SETTLE, bodyKey, metaKey, placeOf } from "../src/model.js";
 import { parseAmount } from "../src/money.js";
 
 /** Two phones' copies of one account, exchanging everything both ways. */
@@ -321,11 +321,28 @@ describe("an account with more than two people in it", () => {
   });
 });
 
+describe("the place an account is kept in", () => {
+  it("is the conversation's chat id when it has exactly the shape the core gives, otherwise this phone only", () => {
+    const chat = "abcDEF012_-".padEnd(43, "x");
+    expect(placeOf(chat)).toBe(chat);
+    expect(LOCAL_PLACE).toBe("local");
+    for (const bad of [undefined, null, "", "x".repeat(42), "x".repeat(44), `${"x".repeat(42)}/`, `${"x".repeat(42)}.`, `${"x".repeat(42)} `, 42, {}, "local"]) {
+      expect(placeOf(bad), String(bad)).toBe(LOCAL_PLACE);
+    }
+  });
+
+  it("keeps the longest key within the core's 128 bytes", () => {
+    const longest = Math.max(metaKey("x".repeat(43), "y".repeat(64)).length, bodyKey("x".repeat(43), "y".repeat(64)).length);
+    expect(longest).toBeLessThanOrEqual(128);
+  });
+});
+
 describe("the records", () => {
-  it("are split/<id>/meta and split/<id>/body, and read back", () => {
+  it("are split/<place>/<id>/meta and split/<place>/<id>/body, and read back", () => {
+    const chat = "A".repeat(43);
     expect(PREFIX).toBe("split/");
-    expect(metaKey("abc")).toBe("split/abc/meta");
-    expect(bodyKey("abc")).toBe("split/abc/body");
+    expect(metaKey(chat, "abc")).toBe(`split/${chat}/abc/meta`);
+    expect(bodyKey(LOCAL_PLACE, "abc")).toBe("split/local/abc/body");
     const account = new Account({ name: "Lisboa", currency: "EUR", peer: "p", shared: true });
     account.add({ amount: 2000, what: "Flat", iPaid: true, split: HALF });
     account.setNick("Ana");

@@ -3,15 +3,17 @@
 // after every change: the body (the whole Yjs document) first, then the meta. Saves go one after
 // another; changes that arrive while one is on its way are written together right after it.
 // A write the core refuses (the quota is full) leaves the account on screen and says so.
-// The same keeper as List's `store.js`, over accounts.
+// The same keeper as List's `store.js`, over accounts, for one place (`placeOf` in `model.js`):
+// it lists, loads, saves and forgets only the accounts of that conversation, or of this phone
+// alone. An account kept in another place does not exist for it.
 
-import { Account, PREFIX, bodyKey, metaKey } from "./model.js";
-
-const KEY = /^split\/([^/]+)\/(meta|body)$/;
+import { Account, bodyKey, metaKey, placePrefix } from "./model.js";
 
 export class Keeper {
-  constructor(records) {
+  constructor(records, place) {
     this.records = records;
+    this.place = place;
+    this.prefix = placePrefix(place);
     this.full = false;
     this.listeners = new Set();
     this.dirty = new Map();
@@ -57,7 +59,7 @@ export class Keeper {
   async write(account) {
     let ok = false;
     try {
-      ok = (await this.records.set(bodyKey(account.id), account.body())) === true && (await this.records.set(metaKey(account.id), account.meta())) === true;
+      ok = (await this.records.set(bodyKey(this.place, account.id), account.body())) === true && (await this.records.set(metaKey(this.place, account.id), account.meta())) === true;
     } catch {
       ok = false;
     }
@@ -72,13 +74,14 @@ export class Keeper {
   async index() {
     let keys = [];
     try {
-      keys = (await this.records.keys(PREFIX)) || [];
+      keys = (await this.records.keys(this.prefix)) || [];
     } catch {
       keys = [];
     }
     const ids = new Set();
     for (const key of keys) {
-      const match = KEY.exec(key);
+      if (typeof key !== "string" || !key.startsWith(this.prefix)) continue;
+      const match = /^([^/]+)\/(meta|body)$/.exec(key.slice(this.prefix.length));
       if (match) ids.add(match[1]);
     }
     const metas = [];
@@ -91,7 +94,7 @@ export class Keeper {
 
   async readMeta(id) {
     try {
-      const meta = JSON.parse(await this.records.get(metaKey(id)));
+      const meta = JSON.parse(await this.records.get(metaKey(this.place, id)));
       if (meta && typeof meta === "object" && meta.id === id && typeof meta.name === "string") return meta;
     } catch {
       // A broken meta: the body still says what the account is.
@@ -103,8 +106,8 @@ export class Keeper {
   /** A kept account, or null. */
   async load(id) {
     try {
-      const body = await this.records.get(bodyKey(id));
-      const meta = await this.records.get(metaKey(id));
+      const body = await this.records.get(bodyKey(this.place, id));
+      const meta = await this.records.get(metaKey(this.place, id));
       return Account.parse(id, body, meta);
     } catch {
       return null;
@@ -114,7 +117,7 @@ export class Keeper {
   async forget(id) {
     this.dirty.delete(id);
     await this.settled();
-    await this.records.forget(bodyKey(id));
-    await this.records.forget(metaKey(id));
+    await this.records.forget(bodyKey(this.place, id));
+    await this.records.forget(metaKey(this.place, id));
   }
 }

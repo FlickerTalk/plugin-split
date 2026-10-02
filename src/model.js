@@ -15,10 +15,21 @@ import * as Y from "yjs";
 import { fromBase64, newWho, toBase64 } from "./live.js";
 import { MAX_MINOR, isCurrency } from "./money.js";
 
-/** Where the plugin keeps its accounts, one meta record and one body record each. */
+/**
+ * Where the plugin keeps its accounts: one meta record and one body record each, under the place
+ * they belong to. The place is the conversation's `chat` id, which the core gives in `onOpen`
+ * (43 of `A-Z a-z 0-9 _ -`, opaque, this phone's own, never sent), so an account shared in one
+ * conversation is unknown in any other. Anything else, or no chat (opened from Settings), is
+ * `local`: accounts of this phone only, never live. `local` cannot be a chat id: it is not 43 long.
+ * The longest key, `split/<43>/<64>/meta`, is 119 bytes, under the core's 128.
+ */
 export const PREFIX = "split/";
-export const metaKey = (id) => `${PREFIX}${id}/meta`;
-export const bodyKey = (id) => `${PREFIX}${id}/body`;
+export const LOCAL_PLACE = "local";
+const CHAT = /^[A-Za-z0-9_-]{43}$/;
+export const placeOf = (chat) => (typeof chat === "string" && CHAT.test(chat) ? chat : LOCAL_PLACE);
+export const placePrefix = (place) => `${PREFIX}${place}/`;
+export const metaKey = (place, id) => `${placePrefix(place)}${id}/meta`;
+export const bodyKey = (place, id) => `${placePrefix(place)}${id}/body`;
 
 /** The shape of the document. An account with a higher schema came from a newer plugin: read only. */
 export const SCHEMA = 1;
