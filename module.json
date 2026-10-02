@@ -1,7 +1,7 @@
 {
   "id": "com.flickertalk.split",
   "name": "Split",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "minCoreVersion": "1.3.0",
   "components": [
     "ft-split"
@@ -10,5 +10,87 @@
     "live": true,
     "send": "propose"
   },
-  "summary": "Shared expenses between two people: who paid what and who owes whom, kept on each phone and joined live from a conversation."
+  "summary": "Shared expenses between two people: who paid what and who owes whom, kept on each phone and joined live from a conversation.",
+  "locales": {
+    "es": {
+      "name": "Gastos compartidos",
+      "summary": "Gastos compartidos entre dos personas: quién pagó qué y quién debe a quién, guardados en cada teléfono y sincronizados en directo desde una conversación."
+    },
+    "pt": {
+      "name": "Despesas partilhadas",
+      "summary": "Despesas partilhadas entre duas pessoas: quem pagou o quê e quem deve a quem, guardadas em cada telefone e sincronizadas em direto a partir de uma conversa."
+    },
+    "fr": {
+      "name": "Dépenses partagées",
+      "summary": "Dépenses partagées entre deux personnes : qui a payé quoi et qui doit à qui, gardées sur chaque téléphone et synchronisées en direct depuis une conversation."
+    },
+    "de": {
+      "name": "Geteilte Ausgaben",
+      "summary": "Geteilte Ausgaben zwischen zwei Personen: wer was bezahlt hat und wer wem etwas schuldet, auf jedem Telefon gespeichert und live aus einer Unterhaltung abgeglichen."
+    },
+    "it": {
+      "name": "Spese condivise",
+      "summary": "Spese condivise tra due persone: chi ha pagato cosa e chi deve a chi, conservate su ogni telefono e sincronizzate in diretta da una conversazione."
+    },
+    "ro": {
+      "name": "Cheltuieli comune",
+      "summary": "Cheltuieli comune între două persoane: cine ce a plătit și cine cui datorează, păstrate pe fiecare telefon și sincronizate în direct dintr-o conversație."
+    },
+    "ru": {
+      "name": "Общие расходы",
+      "summary": "Общие расходы на двоих: кто что оплатил и кто кому должен. Хранятся на каждом телефоне и синхронизируются в реальном времени из переписки."
+    },
+    "uk": {
+      "name": "Спільні витрати",
+      "summary": "Спільні витрати на двох: хто що оплатив і хто кому винен. Зберігаються на кожному телефоні й синхронізуються в реальному часі з розмови."
+    },
+    "pl": {
+      "name": "Wspólne wydatki",
+      "summary": "Wspólne wydatki dwóch osób: kto za co zapłacił i kto komu jest winien, zapisane na każdym telefonie i łączone na żywo z rozmowy."
+    },
+    "tr": {
+      "name": "Ortak harcamalar",
+      "summary": "Ortak harcamalar, iki kişi arasında: kim neyi ödedi, kim kime borçlu; her telefonda saklanır ve bir sohbetten canlı olarak birleştirilir."
+    },
+    "ar": {
+      "name": "مصاريف مشتركة",
+      "summary": "مصاريف مشتركة بين شخصين: من دفع ماذا ومن يدين لمن، محفوظة على كل هاتف وتُدمج مباشرةً من محادثة."
+    },
+    "hi": {
+      "name": "साझा खर्च",
+      "summary": "दो लोगों के बीच साझा खर्च: किसने क्या चुकाया और किसे किसको देना है; हर फ़ोन पर रखा जाता है और बातचीत से लाइव जुड़ता है।"
+    },
+    "bn": {
+      "name": "যৌথ খরচ",
+      "summary": "দুজনের মধ্যে যৌথ খরচ: কে কী দিয়েছে আর কে কার কাছে ঋণী; প্রতিটি ফোনে রাখা থাকে এবং কোনো কথোপকথন থেকে লাইভ মিলিয়ে নেওয়া হয়।"
+    },
+    "id": {
+      "name": "Biaya bersama",
+      "summary": "Biaya bersama antara dua orang: siapa membayar apa dan siapa berutang kepada siapa, tersimpan di setiap ponsel dan digabungkan langsung dari sebuah percakapan."
+    },
+    "vi": {
+      "name": "Chi tiêu chung",
+      "summary": "Chi tiêu chung giữa hai người: ai đã trả gì và ai nợ ai, được lưu trên mỗi điện thoại và đồng bộ trực tiếp từ một cuộc trò chuyện."
+    },
+    "th": {
+      "name": "ค่าใช้จ่ายร่วม",
+      "summary": "ค่าใช้จ่ายร่วมระหว่างสองคน: ใครจ่ายอะไร และใครติดเงินใคร เก็บไว้ในโทรศัพท์แต่ละเครื่อง และรวมกันแบบเรียลไทม์จากการสนทนา"
+    },
+    "ja": {
+      "name": "割り勘",
+      "summary": "ふたりの割り勘：誰が何を払い、誰が誰に借りているか。それぞれの端末に保存され、会話からリアルタイムで共有されます。"
+    },
+    "ko": {
+      "name": "함께 쓴 돈",
+      "summary": "두 사람이 함께 쓴 돈: 누가 무엇을 냈고 누가 누구에게 갚아야 하는지. 각 휴대폰에 저장되고 대화에서 실시간으로 합쳐집니다."
+    },
+    "zh-CN": {
+      "name": "共同开销",
+      "summary": "两人之间的共同开销：谁付了什么、谁欠谁，保存在各自的手机上，并在对话中实时合并。"
+    },
+    "zh-TW": {
+      "name": "共同開銷",
+      "summary": "兩人之間的共同開銷：誰付了什麼、誰欠誰，保存在各自的手機上，並在對話中即時合併。"
+    }
+  }
 }

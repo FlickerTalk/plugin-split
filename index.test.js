@@ -9,6 +9,7 @@ import { FORMAT } from "./src/index.js";
 import { HELLO, Inbox, UPDATE, VERSION, decode, encode, fromBase64 } from "./src/live.js";
 import { Account, LOCAL_PLACE, bodyKey, metaKey } from "./src/model.js";
 import { APP_ICONS, OWN_ICONS } from "./src/icons.js";
+import { STRINGS } from "./src/strings.js";
 import { connect, fakeCore } from "./test/fake-core.js";
 
 const manifest = JSON.parse(readFileSync(join(import.meta.dirname, "module.json"), "utf8"));
@@ -103,14 +104,40 @@ describe("the manifest", () => {
     expect(manifest).toEqual({
       id: "com.flickertalk.split",
       name: "Split",
-      version: "1.0.0",
+      version: "1.0.1",
       minCoreVersion: "1.3.0",
       components: ["ft-split"],
       permissions: { live: true, send: "propose" },
       summary: expect.any(String),
+      locales: expect.any(Object),
     });
     expect(manifest.summary.length).toBeLessThanOrEqual(200);
     expect(FORMAT).toBe("ftsplit");
+  });
+
+  // The 20 languages of the app besides English, in which the catalogue shows the plugin's name
+  // and summary (plugin-sdk, `locales` in module.schema.json).
+  const LOCALES = ["es", "pt", "fr", "de", "it", "ro", "ru", "uk", "pl", "tr", "ar", "hi", "bn", "id", "vi", "th", "ja", "ko", "zh-CN", "zh-TW"];
+  const codePoints = (text) => [...text].length;
+
+  it("names and sums up the plugin in the 20 other languages of the app, within the SDK's limits", () => {
+    expect(Object.keys(manifest.locales ?? {})).toEqual(LOCALES);
+    for (const lang of LOCALES) {
+      const { name, summary } = manifest.locales[lang];
+      expect(summary, lang).toBeTypeOf("string");
+      expect(codePoints(summary.trim()), lang).toBeGreaterThan(0);
+      expect(codePoints(summary), lang).toBeLessThanOrEqual(200);
+      expect(name, lang).toBeTypeOf("string");
+      expect(codePoints(name.trim()), lang).toBeGreaterThan(0);
+      expect(codePoints(name), lang).toBeLessThanOrEqual(64);
+    }
+  });
+
+  it("calls the plugin in each language what the plugin calls itself", () => {
+    for (const lang of LOCALES) {
+      expect(STRINGS[lang]?.title, lang).toBeTypeOf("string");
+      expect(manifest.locales?.[lang]?.name, lang).toBe(STRINGS[lang].title);
+    }
   });
 });
 
