@@ -271,6 +271,56 @@ describe("what came from elsewhere", () => {
   });
 });
 
+describe("an account with more than two people in it", () => {
+  /** A and B share an account; a third phone, C, gets into the same document. */
+  const threeOf = () => {
+    const a = new Account({ name: "Lisboa", currency: "EUR" });
+    const b = otherPhone(a);
+    const c = otherPhone(a);
+    a.add({ amount: 3000, what: "by a", iPaid: true, split: HALF });
+    b.add({ amount: 1000, what: "by b", iPaid: true, split: HALF });
+    c.add({ amount: 600, what: "by c", iPaid: false, split: ALL });
+    exchange(a, b);
+    exchange(a, c);
+    exchange(b, c);
+    return { a, b, c };
+  };
+
+  it("says nothing about who owes whom: no balance, no settling, no balance in the meta", () => {
+    const { a, b, c } = threeOf();
+    for (const account of [a, b, c]) {
+      expect(account.crowded).toBe(true);
+      expect(account.totals()).toEqual({ total: 4600, mine: null, theirs: null, balance: null });
+      expect(account.settle()).toBeNull();
+      expect(JSON.parse(account.meta())).toMatchObject({ count: 3, balance: null });
+    }
+    expect(a.entries().filter((one) => one.kind === SETTLE)).toEqual([]);
+  });
+
+  it("is two people while only two wrote in it, whoever wrote what", () => {
+    const a = new Account({ name: "x", currency: "EUR" });
+    a.add({ amount: 1000, what: "by a", iPaid: false, split: HALF });
+    expect(a.crowded).toBe(false);
+    const b = otherPhone(a);
+    b.add({ amount: 500, what: "by b", iPaid: false, split: HALF });
+    exchange(a, b);
+    expect(a.crowded).toBe(false);
+    expect(b.crowded).toBe(false);
+    expect(a.totals().balance).toBe(-500 + 250);
+  });
+
+  it("counts this phone too: a lost meta gives a new participant id, and the old entries stop adding up", () => {
+    const a = new Account({ name: "x", currency: "EUR" });
+    a.add({ amount: 1000, what: "mine", iPaid: true, split: HALF });
+    const b = otherPhone(a);
+    b.add({ amount: 400, what: "theirs", iPaid: true, split: HALF });
+    exchange(a, b);
+    const lost = Account.parse(a.id, a.body(), "{broken");
+    expect(lost.crowded).toBe(true);
+    expect(lost.totals().balance).toBeNull();
+  });
+});
+
 describe("the records", () => {
   it("are split/<id>/meta and split/<id>/body, and read back", () => {
     expect(PREFIX).toBe("split/");

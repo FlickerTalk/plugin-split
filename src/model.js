@@ -233,6 +233,7 @@ export class Account {
   settle({ now = Date.now() } = {}) {
     if (!this.writable) return null;
     const { balance } = this.totals();
+    if (balance === null) return null;
     const amount = Math.abs(balance);
     if (!isAmount(amount)) return null;
     const covered = this.entries().map((one) => one.id).sort().join(",");
@@ -260,11 +261,31 @@ export class Account {
   }
 
   /**
+   * Whether more than two people wrote in this account (counting this phone's participant id):
+   * "the other person" is then not one person, so no balance can be told. It happens if the
+   * document reached a third phone, or this phone lost its meta record and got a new id.
+   */
+  get crowded() {
+    const people = new Set([this.who]);
+    for (const entry of this.expenses.values()) {
+      if (!(entry instanceof Y.Map) || entry.get("gone") === true) continue;
+      const paid = entry.get("paid");
+      if (typeof paid === "string" && paid) people.add(paid.startsWith("!") ? paid.slice(1) : paid);
+    }
+    return people.size > 2;
+  }
+
+  /**
    * What was spent (`total`), what each paid (`mine`, `theirs`) — settlements are not spending —
    * and the `balance` from this phone's side: positive, the other person owes; negative, this
-   * phone's person owes. In half, the one who did not pay owes the smaller half.
+   * phone's person owes. In half, the one who did not pay owes the smaller half. In a crowded
+   * account only the total is known: who paid and who owes are null, never a guess.
    */
   totals() {
+    if (this.crowded) {
+      const total = this.entries().reduce((sum, one) => (one.kind === EXPENSE ? sum + one.amount : sum), 0);
+      return { total, mine: null, theirs: null, balance: null };
+    }
     let total = 0;
     let mine = 0;
     let theirs = 0;
