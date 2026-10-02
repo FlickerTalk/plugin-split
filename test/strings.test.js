@@ -24,4 +24,14 @@ describe("Split's catalogue", () => {
       expect(STRINGS[lang].sumEven, lang).toContain("✅");
     }
   });
+
+  it("has no emoji in any language, except in the summary that goes to the chat", () => {
+    for (const lang of LANGUAGES) {
+      for (const [key, text] of Object.entries(STRINGS[lang])) {
+        if (key.startsWith("sum")) continue;
+        expect(text.match(/\p{Extended_Pictographic}/u)?.[0] ?? null, `${lang}.${key}`).toBeNull();
+      }
+    }
+  });
 });
+

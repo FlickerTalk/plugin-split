@@ -1,7 +1,7 @@
 // Split for FlickerTalk (plan-plugins-nuevos §8): shared expenses between two people, kept on this
 // phone. Accounts with one currency each; an expense has an amount, what it was for, who paid and
 // how it splits (in half, or all of it for the one who did not pay); the balance says who owes
-// whom; "💸 Settle up" records the payment that evens it. From a conversation, "🔄 Live" lets the
+// whom; "Settle up" records the payment that evens it. From a conversation, "Live" lets the
 // two phones keep one account at once over the core's direct channel (`live.js`); what each does
 // apart is kept here and joins the other's when both have it open. 📤 puts a summary in the
 // composer, said by whoever sends it. Nothing leaves this frame but what the user sends, and what
@@ -13,6 +13,7 @@
 
 import { name as APP_NAME, version as APP_VERSION } from "../module.json";
 import { dirOf, makeT } from "./i18n.js";
+import { icon } from "./icons.js";
 import { HELLO, Inbox, LiveSession, inOrder, isNewer } from "./live.js";
 import { yjsReplica } from "./live-yjs.js";
 import { ALL, Account, HALF, LOCAL_PLACE, MAX_NAME, MAX_NICK, MAX_WHAT, SETTLE, placeOf } from "./model.js";
@@ -49,6 +50,12 @@ button.on { opacity: 1; box-shadow: inset 0 0 0 2px currentColor; }
 button.danger { color: var(--accent); }
 button.plain { border: 0; }
 .i { display: block; width: 22px; height: 22px; margin: auto; background: currentColor; -webkit-mask: var(--i) center/contain no-repeat; mask: var(--i) center/contain no-repeat; }
+.i.own { background: none; -webkit-mask: none; mask: none; }
+.i svg { display: block; width: 100%; height: 100%; fill: currentColor; }
+.with { display: flex; gap: 6px; align-items: center; }
+.with > .i, button > .i + span, .what > .i { flex: none; }
+.with > .i, .what > .i, .meta .i, button.text .i { display: inline-block; width: 18px; height: 18px; margin: 0; vertical-align: -3px; }
+button.text { display: inline-flex; gap: 6px; align-items: center; }
 form { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 0; }
 form.wide { flex: 1; }
 .row { display: flex; gap: 6px; width: 100%; }
@@ -81,8 +88,12 @@ li .open { flex: 1; display: flex; flex-direction: column; align-items: flex-sta
 .nick { margin-top: 16px; }
 `;
 
-const icon = (name) => `<i class="i" style="--i:url(./icon/${name}.svg)"></i>`;
 const button = (act, label, name, extra = "") => `<button type="button" data-act="${act}" aria-label="${escape(label)}" ${extra}>${icon(name)}</button>`;
+
+/** A line of text with its icon beside it (the icon is hidden from screen readers). */
+const withIcon = (name, text) => `${icon(name)}<span>${escape(text)}</span>`;
+/** The icon of each live status. */
+const STATUS_ICONS = { waiting: "sync-outline", joined: "sync-outline", silent: "person-outline", unreachable: "cloud-offline-outline", left: "log-out-outline", outdated: "download-outline" };
 
 /** The plugin's view: the accounts this phone keeps, or one account. */
 class SplitElement extends HTMLElement {
@@ -153,7 +164,7 @@ class SplitElement extends HTMLElement {
   }
 
   /**
-   * "Owes you …", "You owe …" or "All square ✅", from this phone's side; with more than two
+   * "Owes you …", "You owe …" or "All square", from this phone's side; with more than two
    * people in the account (`balance` null), a warning instead: no balance is claimed.
    */
   balanceText(balance, currency) {
@@ -162,6 +173,15 @@ class SplitElement extends HTMLElement {
     if (balance > 0) return this.T("owesYou", { amount: this.money(balance, currency) });
     if (balance < 0) return this.T("youOwe", { amount: this.money(-balance, currency) });
     return this.T("even");
+  }
+
+  /** The balance as painted: the text, with an icon when even or when no balance can be told. */
+  balanceHtml(balance, currency) {
+    const text = this.balanceText(balance, currency);
+    if (!text) return "";
+    if (balance === null) return withIcon("alert-circle-outline", text);
+    if (balance === 0) return withIcon("checkmark-circle-outline", text);
+    return `<span>${escape(text)}</span>`;
   }
 
   currencyName(code) {
@@ -571,16 +591,16 @@ class SplitElement extends HTMLElement {
             <button type="button" class="danger" data-act="confirmDelete" data-id="${escape(meta.id)}">${escape(T("delete"))}</button>
             <button type="button" data-act="cancelDelete">${escape(T("cancel"))}</button></li>`;
         }
-        const balance = meta.balance === null || Number.isSafeInteger(meta.balance) ? this.balanceText(meta.balance, meta.currency) : "";
-        const shared = meta.shared ? ` · 🔄 ${T("shared")}` : "";
-        return `<li><button type="button" class="open" data-act="open" data-id="${escape(meta.id)}"><span class="title">${escape(name)}</span><span class="meta">${escape(`${balance}${shared}`)}</span></button>
+        const balance = meta.balance === null || Number.isSafeInteger(meta.balance) ? this.balanceHtml(meta.balance, meta.currency) : "";
+        const shared = meta.shared ? `${balance ? " · " : ""}${withIcon("sync-outline", T("shared"))}` : "";
+        return `<li><button type="button" class="open" data-act="open" data-id="${escape(meta.id)}"><span class="title">${escape(name)}</span><span class="meta">${balance}${shared}</span></button>
           ${button("delete", T("delete"), "trash-outline", `data-id="${escape(meta.id)}"`)}</li>`;
       })
       .join("");
     return `
       <div class="bar"><h1 class="grow">${escape(T("title"))}</h1>${button("close", T("close"), "close-outline")}</div>
-      <p class="hint">👥 ${escape(T("forTwo"))}</p>
-      ${this.place === LOCAL_PLACE ? `<p class="hint" data-local>📱 ${escape(T("localOnly"))}</p>` : ""}
+      <p class="hint with">${withIcon("people-outline", T("forTwo"))}</p>
+      ${this.place === LOCAL_PLACE ? `<p class="hint with" data-local>${withIcon("phone-portrait-outline", T("localOnly"))}</p>` : ""}
       <form data-form="new"><input name="value" maxlength="${MAX_NAME}" autocomplete="off" placeholder="${escape(T("namePlaceholder"))}" aria-label="${escape(T("newAccount"))}"><select name="currency" aria-label="${escape(T("currency"))}">${options}</select><button type="submit" aria-label="${escape(T("newAccount"))}">${icon("add-outline")}</button></form>
       ${rows ? `<ul>${rows}</ul>` : `<p class="empty">${escape(T("empty"))}</p>`}`;
   }
@@ -588,15 +608,15 @@ class SplitElement extends HTMLElement {
   accountScreen() {
     const T = (key) => this.T(key);
     const account = this.account;
-    const note = account.readOnly ? T("readOnly") : account.ready ? "" : T("waitingData");
+    const note = account.readOnly ? withIcon("download-outline", T("readOnly")) : account.ready ? "" : withIcon("sync-outline", T("waitingData"));
     const writable = account.writable;
     return `
       <div class="bar" data-header></div>
-      <p class="status" data-status aria-live="polite"></p>
+      <p class="status with" data-status aria-live="polite"></p>
       <p class="hint" data-hint>${escape(this.mayLive ? T("liveHint") : T("needsChat"))}</p>
-      <p class="hint">👥 ${escape(T("forTwo"))}</p>
-      <p class="warn" data-warning role="alert"></p>
-      <p class="note">${escape(note)}</p>
+      <p class="hint with">${withIcon("people-outline", T("forTwo"))}</p>
+      <p class="warn with" data-warning role="alert"></p>
+      <p class="note with">${note}</p>
       <div class="invite" data-invite></div>
       <div data-summary aria-live="polite"></div>
       ${
@@ -623,7 +643,7 @@ class SplitElement extends HTMLElement {
       ${button("back", T("back"), "arrow-back-outline")}
       ${title}
       ${!this.renaming && account.writable ? button("rename", T("rename"), "pencil-outline") : ""}
-      ${this.mayLive && !account.readOnly ? `<button type="button" data-act="live" class="${live ? "on" : ""}" aria-pressed="${live ? "true" : "false"}" aria-label="${escape(live ? T("stopLive") : T("live"))}">🔄 ${escape(T("live"))}</button>` : ""}
+      ${this.mayLive && !account.readOnly ? `<button type="button" data-act="live" aria-pressed="${live ? "true" : "false"}" aria-label="${escape(live ? T("stopLive") : T("live"))}" class="text${live ? " on" : ""}">${withIcon("sync-outline", T("live"))}</button>` : ""}
       ${this.maySay && account.ready && !account.crowded ? button("send", T("send"), "send-outline") : ""}
       ${button("close", T("close"), "close-outline")}`;
   }
@@ -650,12 +670,13 @@ class SplitElement extends HTMLElement {
       left: `${T("left")} ${T("kept")}`,
       outdated: T("outdated"),
     };
-    node.textContent = texts[this.status] ?? "";
+    const text = texts[this.status];
+    node.innerHTML = text ? withIcon(STATUS_ICONS[this.status], text) : "";
   }
 
   paintWarning() {
     const node = this.view?.querySelector("[data-warning]");
-    if (node) node.textContent = this.keeper.full ? this.T("full") : "";
+    if (node) node.innerHTML = this.keeper.full ? withIcon("alert-circle-outline", this.T("full")) : "";
   }
 
   paintError() {
@@ -670,12 +691,12 @@ class SplitElement extends HTMLElement {
       node.innerHTML = "";
       return;
     }
-    node.innerHTML = `<span>${escape(this.T("joinPrompt", { name: this.invite.name }))}</span>
+    node.innerHTML = `<span class="with">${withIcon("log-in-outline", this.T("joinPrompt", { name: this.invite.name }))}</span>
       <button type="button" data-act="join">${escape(this.T("join"))}</button>
       <button type="button" data-act="notNow">${escape(this.T("notNow"))}</button>`;
   }
 
-  /** The balance, what was spent, and "💸 Settle up" (asked inside the plugin, never with confirm()). */
+  /** The balance, what was spent, and "Settle up" (asked inside the plugin, never with confirm()). */
   paintSummary() {
     const node = this.view?.querySelector("[data-summary]");
     const account = this.account;
@@ -692,12 +713,12 @@ class SplitElement extends HTMLElement {
     if (this.settling && account.writable) {
       const ask = balance > 0 ? T("settleTheyPay", { amount: this.money(balance) }) : T("settleYouPay", { amount: this.money(-balance) });
       settle = `<div class="confirm"><span>${escape(ask)}</span>
-        <button type="button" data-act="confirmSettle">${escape(T("settle"))}</button>
+        <button type="button" class="text" data-act="confirmSettle">${withIcon("cash-outline", T("settle"))}</button>
         <button type="button" data-act="cancelSettle">${escape(T("cancel"))}</button></div>`;
     } else if (known && balance !== 0 && account.writable) {
-      settle = `<button type="button" data-act="settle">${escape(T("settle"))}</button>`;
+      settle = `<button type="button" class="text" data-act="settle">${withIcon("cash-outline", T("settle"))}</button>`;
     }
-    node.innerHTML = `<p class="${known ? "balance" : "warn"}" data-balance>${escape(this.balanceText(balance, account.currency))}</p>
+    node.innerHTML = `<p class="${known ? "balance" : "warn"} with" data-balance>${this.balanceHtml(balance, account.currency)}</p>
       <p class="meta" data-total>${escape(T("total", { amount: this.money(total) }))}</p>${settle}`;
   }
 
@@ -754,10 +775,10 @@ class SplitElement extends HTMLElement {
         return `<li data-editing="${escape(one.id)}"><form class="wide" data-form="edit">${fields}
           ${button("remove", T("remove"), "trash-outline", 'class="danger"')}${button("cancelEdit", T("cancel"), "close-outline")}</form></li>`;
       }
-      const what = settlement ? T("settled") : one.what;
+      const what = settlement ? withIcon("cash-outline", T("settled")) : escape(one.what);
       const who = settlement ? this.paidLabel(one.mine) : `${this.paidLabel(one.mine)} · ${this.splitLabel(one.mine, one.split)}`;
       const edit = writable ? button("edit", T("edit"), "pencil-outline", `class="plain" data-id="${escape(one.id)}"`) : "";
-      return `<li data-entry="${escape(one.id)}" data-kind="${one.kind}"><div class="main"><span class="what">${escape(what)}</span><span class="who">${escape(who)}</span></div><span class="amount">${escape(this.money(one.amount))}</span>${edit}</li>`;
+      return `<li data-entry="${escape(one.id)}" data-kind="${one.kind}"><div class="main"><span class="what">${what}</span><span class="who">${escape(who)}</span></div><span class="amount">${escape(this.money(one.amount))}</span>${edit}</li>`;
     });
     node.innerHTML = rows.length ? rows.join("") : account.ready ? `<li class="empty">${escape(T("noExpenses"))}</li>` : "";
     this.paintChoices("edit");

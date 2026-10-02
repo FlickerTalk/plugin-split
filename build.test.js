@@ -10,6 +10,12 @@ const DIST = join(import.meta.dirname, "dist");
 const CAP = 400 * 1024;
 /** `http://` is allowed only as a known XML namespace, which is a name and never fetched. */
 const NAMESPACES = ["http://www.w3.org/2000/svg", "http://www.w3.org/1999/xhtml", "http://www.w3.org/1999/xlink", "http://www.w3.org/XML/1998/namespace"];
+/**
+ * The only other `http://` allowed, and only in the notices: Ionicons' copyright line,
+ * "Copyright (c) 2015-present Ionic (http://ionic.io/)", which the MIT licence asks to keep as it
+ * is. It is text in a Markdown file the plugin never loads, never an address anything fetches.
+ */
+const NOTICE_ADDRESSES = { "THIRD_PARTY_NOTICES.md": ["http://ionic.io/"] };
 
 function files(dir = DIST) {
   const all = [];
@@ -35,7 +41,8 @@ describe("the package", () => {
       const text = readFileSync(path, "utf8");
       expect(text, path).not.toMatch(/https:\/\//i);
       const plain = [...text.matchAll(/http:\/\/[^\s"'`)<>]*/gi)].map((match) => match[0]);
-      for (const address of plain) expect(NAMESPACES, `${path}: ${address}`).toContain(address);
+      const allowed = [...NAMESPACES, ...(NOTICE_ADDRESSES[path.slice(DIST.length + 1)] ?? [])];
+      for (const address of plain) expect(allowed, `${path}: ${address}`).toContain(address);
     }
   });
 
@@ -69,7 +76,8 @@ describe("the package", () => {
   it("carries the licence of everything inside the bundle", () => {
     const notices = readFileSync(join(DIST, "THIRD_PARTY_NOTICES.md"), "utf8");
     expect(notices).toBe(readFileSync(join(import.meta.dirname, "THIRD_PARTY_NOTICES.md"), "utf8"));
-    for (const name of ["yjs 13.6.33", "lib0 0.2.118"]) expect(notices).toContain(name);
-    expect(notices.match(/Permission is hereby granted, free of charge/g).length).toBeGreaterThanOrEqual(2);
+    for (const name of ["yjs 13.6.33", "lib0 0.2.118", "ionicons 8.1.0"]) expect(notices).toContain(name);
+    expect(notices.match(/Permission is hereby granted, free of charge/g).length).toBeGreaterThanOrEqual(3);
+    expect(notices).toContain(readFileSync(join(import.meta.dirname, "node_modules", "ionicons", "LICENSE"), "utf8").trim());
   });
 });

@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { FORMAT } from "./src/index.js";
 import { HELLO, Inbox, UPDATE, VERSION, decode, encode, fromBase64 } from "./src/live.js";
 import { Account, LOCAL_PLACE, bodyKey, metaKey } from "./src/model.js";
+import { APP_ICONS, OWN_ICONS } from "./src/icons.js";
 import { connect, fakeCore } from "./test/fake-core.js";
 
 const manifest = JSON.parse(readFileSync(join(import.meta.dirname, "module.json"), "utf8"));
@@ -108,7 +109,7 @@ describe("one phone", () => {
     expect(currencies).toEqual(Intl.supportedValuesOf("currency"));
     await newAccount(element, "Lisboa");
     expect(inside(element).querySelector("[data-name]").textContent).toBe("Lisboa");
-    expect(balanceOf(element)).toBe("All square ✅");
+    expect(balanceOf(element)).toBe("All square");
 
     await spend(element, "12,50", "Dinner", "me", "half");
     expect(balanceOf(element)).toBe("Owes you €6.25");
@@ -179,8 +180,8 @@ describe("one phone", () => {
     expect(balanceOf(element)).toBe("Owes you €12.50");
     await press(element, "settle");
     await press(element, "confirmSettle");
-    expect(balanceOf(element)).toBe("All square ✅");
-    expect(rows(element)[0]).toBe("💸 Settled up €12.50 | The other person paid");
+    expect(balanceOf(element)).toBe("All square");
+    expect(rows(element)[0]).toBe("Settled up €12.50 | The other person paid");
     expect(inside(element).querySelector('[data-act="settle"]')).toBeNull();
     expect(globalThis.confirm).not.toHaveBeenCalled();
     delete globalThis.confirm;
@@ -765,6 +766,130 @@ describe("found in the iOS simulator", () => {
     expect(css).toContain(":host([dark])");
     expect(css).toContain("prefers-color-scheme: dark");
     expect(css).not.toContain(":host-context");
+  });
+});
+
+describe("icons, not emoji", () => {
+  const PICTOGRAPH = /\p{Extended_Pictographic}/u;
+
+  /** Everything the view paints, at many moments: what is on screen, attributes included. */
+  async function everyScreen() {
+    const shots = [];
+    const snap = (element) => shots.push(inside(element).innerHTML);
+    // Outside a conversation: empty, then accounts with a balance, even, and more than two people.
+    const local = fakeCore({ quota: 4000 });
+    const crowded = new Account({ name: "Crowded", currency: "EUR" });
+    crowded.add({ amount: 3000, what: "by a", iPaid: true, split: "half" });
+    for (const what of ["by b", "by c"]) {
+      const other = Account.parse(crowded.id, crowded.body());
+      other.add({ amount: 1000, what, iPaid: true, split: "half" });
+      const { encodeStateAsUpdate, applyUpdate } = await import("yjs");
+      applyUpdate(crowded.doc, encodeStateAsUpdate(other.doc));
+    }
+    local.records.set(bodyKey(LOCAL_PLACE, crowded.id), crowded.body());
+    local.records.set(metaKey(LOCAL_PLACE, crowded.id), crowded.meta());
+    const readOnly = new Account({ name: "Newer", currency: "EUR" });
+    readOnly.doc.getMap("info").set("schema", 99);
+    local.records.set(bodyKey(LOCAL_PLACE, readOnly.id), readOnly.body());
+    local.records.set(metaKey(LOCAL_PLACE, readOnly.id), readOnly.meta());
+    const one = await phone(local, { live: false });
+    snap(one);
+    await newAccount(one, "Even");
+    snap(one);
+    await press(one, "back");
+    await newAccount(one, "Lisboa");
+    await spend(one, "25", "Dinner");
+    await spend(one, "12,505", "Bad");
+    snap(one);
+    await press(one, "settle");
+    snap(one);
+    await press(one, "confirmSettle");
+    await press(one, "edit", `[data-id="${entryId(one, "Dinner")}"]`);
+    snap(one);
+    await press(one, "cancelEdit");
+    for (let at = 0; at < 30; at += 1) await spend(one, "1", `filling the little room there is ${at}`);
+    snap(one);
+    await press(one, "back");
+    snap(one);
+    await press(one, "open", `[data-id="${crowded.id}"]`);
+    snap(one);
+    await press(one, "back");
+    await press(one, "open", `[data-id="${readOnly.id}"]`);
+    snap(one);
+    await press(one, "back");
+    await press(one, "delete");
+    snap(one);
+    one.show(Account.received("waiting"));
+    snap(one);
+    // In conversations: live, joined, an invite, the other leaving, unreachable, silent, newer.
+    vi.useFakeTimers();
+    const { coreA, coreB, link, a, b, idle } = await twoPhones();
+    snap(a);
+    await newAccount(b, "Mine");
+    await newAccount(a, "Lisboa");
+    await spend(a, "30", "Hotel");
+    coreB.shut();
+    await press(a, "live");
+    snap(a);
+    await vi.advanceTimersByTimeAsync(8000);
+    await settle(a);
+    snap(a);
+    coreB.listening = true;
+    await press(a, "live");
+    await press(a, "live");
+    await idle();
+    snap(a);
+    snap(b);
+    await press(b, "join");
+    await idle();
+    snap(a);
+    snap(b);
+    link.down();
+    await spend(a, "1", "Offline");
+    snap(a);
+    link.up();
+    await press(b, "back");
+    await idle();
+    snap(a);
+    await coreA.hear(encode({ p: "ftsplit", v: VERSION + 1, k: UPDATE, doc: a.account.id, who: b.account?.who ?? "w", app: "2.0.0", u: "AAA=" }));
+    await settle(a);
+    snap(a);
+    return shots;
+  }
+
+  it("paints no emoji anywhere: every screen, every state, every attribute", async () => {
+    const shots = await everyScreen();
+    expect(shots.length).toBeGreaterThan(15);
+    for (const html of shots) expect(html.match(PICTOGRAPH)?.[0] ?? null, html.slice(0, 300)).toBeNull();
+  });
+
+  it("asks the app only for icons it lends, carries the rest, and every button can be named", async () => {
+    const shots = await everyScreen();
+    const asked = new Set(shots.flatMap((html) => [...html.matchAll(/\.\/icon\/([a-z0-9-]+)\.svg/g)].map((match) => match[1])));
+    expect(asked.size).toBeGreaterThan(4);
+    for (const name of asked) expect(APP_ICONS.has(name), name).toBe(true);
+    const inline = shots.reduce((sum, html) => sum + (html.match(/<i class="i own"/g)?.length ?? 0), 0);
+    expect(inline).toBeGreaterThan(10);
+    for (const html of shots) {
+      const box = document.createElement("div");
+      box.innerHTML = html;
+      for (const button of box.querySelectorAll("button")) {
+        const named = (button.getAttribute("aria-label") ?? "").trim() || button.textContent.trim();
+        expect(named, button.outerHTML).not.toBe("");
+      }
+      for (const drawn of box.querySelectorAll("i.i")) expect(drawn.getAttribute("aria-hidden") === "true" || drawn.hasAttribute("aria-label"), drawn.outerHTML).toBe(true);
+      // A button with an icon and a text lays them out side by side (one class attribute only).
+      for (const button of box.querySelectorAll('[data-act="live"], [data-act="settle"], [data-act="confirmSettle"]')) expect(button.classList.contains("text"), button.outerHTML).toBe(true);
+    }
+    expect(OWN_ICONS).toEqual(expect.arrayContaining(["sync-outline", "cash-outline", "people-outline", "phone-portrait-outline", "checkmark-circle-outline", "alert-circle-outline"]));
+  });
+
+  it("keeps its emoji only in the text it proposes for the chat", async () => {
+    const core = fakeCore();
+    const element = await phone(core);
+    await newAccount(element, "Lisboa");
+    await press(element, "send");
+    expect(core.said[0]).toMatch(/^🧾 Lisboa · .* · we're even ✅$/u);
   });
 });
 
