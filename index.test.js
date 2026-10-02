@@ -450,3 +450,121 @@ describe("two phones", () => {
     expect(link.carried.every(({ data }) => decode(data, "ftsplit"))).toBe(true);
   });
 });
+
+describe("a third person", () => {
+  /** A and B share "Lisboa"; C is a third phone with Split open. */
+  async function shared() {
+    const coreA = fakeCore();
+    const coreB = fakeCore();
+    const coreC = fakeCore();
+    let link = connect(coreA, coreB);
+    const a = await phone(coreA);
+    const b = await phone(coreB);
+    globalThis.ft = coreC.ft;
+    const c = await phone(coreC);
+    await newAccount(a, "Lisboa");
+    await spend(a, "30", "Hotel");
+    await press(a, "live");
+    await link.idle();
+    await settle(a, b);
+    expect(b.account.id).toBe(a.account.id);
+    return { coreA, coreB, coreC, a, b, c, link, relink: (to) => (link = connect(coreA, to)), idle: async (...elements) => {
+      await link.idle();
+      await settle(...elements);
+    } };
+  }
+
+  it("cannot join an account two people share: going live from it with someone else only resumes with the first", async () => {
+    vi.useFakeTimers();
+    const { coreA, coreB, coreC, a, b, c, relink, idle } = await shared();
+    const id = a.account.id;
+    const peer = a.account.peer;
+    expect(peer).toBe(b.account.who);
+    // A leaves, and opens Split again in the conversation with C.
+    await press(a, "close");
+    document.body.removeChild(a);
+    coreA.reload();
+    relink(coreC);
+    const mark = coreA.sent.length;
+    const again = await phone(coreA);
+    // Entering a shared account resumes on its own; C does not answer.
+    await press(again, "open", `[data-id="${id}"]`);
+    await idle(again, c);
+    await vi.advanceTimersByTimeAsync(8000);
+    await settle(again);
+    expect(statusOf(again)).toContain("doesn't have Split open in this conversation");
+    // The user presses 🔄 anyway: it only resumes with B, and C still gets nothing.
+    await press(again, "live");
+    await idle(again, c);
+    const hellos = coreA.sent.slice(mark).map((data) => decode(data, "ftsplit")).filter((one) => one?.k === HELLO);
+    expect(hellos).toHaveLength(2);
+    for (const hello of hellos) expect(hello).toMatchObject({ resume: true, doc: id });
+    for (const hello of hellos) expect(hello.title).toBeUndefined();
+    expect(c.account).toBeNull();
+    expect(coreC.records.size).toBe(0);
+    expect(coreC.sent).toHaveLength(0);
+    await vi.advanceTimersByTimeAsync(8000);
+    await settle(again);
+    expect(statusOf(again)).toContain("doesn't have Split open in this conversation");
+    expect(again.account.peer).toBe(peer);
+    expect(JSON.parse(coreA.records.get(metaKey(id))).peer).toBe(peer);
+    // Back in the conversation with B: they keep in step.
+    await press(again, "close");
+    document.body.removeChild(again);
+    coreA.reload();
+    relink(coreB);
+    const back = await phone(coreA);
+    await press(back, "open", `[data-id="${id}"]`);
+    await idle(back, b);
+    expect(statusOf(back)).toContain("Live");
+    await spend(b, "10", "Taxi");
+    await idle(back, b);
+    expect(rows(back)[0]).toBe("Taxi €10.00 | The other person paid · ½ Half each");
+    expect(balanceOf(back)).toBe("Owes you €10.00");
+  });
+
+  it("gets nothing when a third phone says hello for an account two people share", async () => {
+    const { coreA, a, idle } = await shared();
+    const id = a.account.id;
+    const peer = a.account.peer;
+    const intruder = (title) => encode({ p: "ftsplit", v: VERSION, k: HELLO, doc: id, who: "cccccccc", app: "1.0.0", sv: "AA==", title });
+    // While A is live on it with B…
+    let before = coreA.sent.length;
+    await coreA.hear(intruder("Lisboa"));
+    await idle(a);
+    expect(coreA.sent.slice(before)).toEqual([]);
+    expect(a.account.peer).toBe(peer);
+    expect(statusOf(a)).toContain("Live");
+    // …and from the list of accounts.
+    await press(a, "back");
+    await idle(a);
+    before = coreA.sent.length;
+    await coreA.hear(intruder("Lisboa"));
+    await idle(a);
+    expect(coreA.sent.slice(before)).toEqual([]);
+    expect(a.account).toBeNull();
+    expect(JSON.parse(coreA.records.get(metaKey(id))).peer).toBe(peer);
+  });
+
+  it("shows a warning instead of a balance when the account holds more than two people, and offers neither 💸 nor 📤", async () => {
+    const core = fakeCore();
+    const first = new Account({ name: "Lisboa", currency: "EUR" });
+    first.add({ amount: 3000, what: "by a", iPaid: true, split: "half" });
+    for (const what of ["by b", "by c"]) {
+      const other = Account.parse(first.id, first.body());
+      other.add({ amount: 1000, what, iPaid: true, split: "half" });
+      const { encodeStateAsUpdate, applyUpdate } = await import("yjs");
+      applyUpdate(first.doc, encodeStateAsUpdate(other.doc));
+    }
+    core.records.set(bodyKey(first.id), first.body());
+    core.records.set(metaKey(first.id), first.meta());
+    const element = await phone(core, { live: false });
+    expect(plain(inside(element).querySelector("[data-act=open]").textContent)).toContain("more than two people");
+    await press(element, "open");
+    expect(balanceOf(element)).toContain("more than two people");
+    expect(balanceOf(element)).not.toMatch(/Owes you|You owe|All square/);
+    expect(inside(element).querySelector('[data-act="settle"]')).toBeNull();
+    expect(inside(element).querySelector('[data-act="send"]')).toBeNull();
+    expect(plain(inside(element).querySelector("[data-total]").textContent)).toBe("Total spent: €50.00");
+  });
+});

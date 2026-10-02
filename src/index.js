@@ -139,9 +139,13 @@ class SplitElement extends HTMLElement {
     return toDecimal(minor, this.account.currency).replace(".", mark);
   }
 
-  /** "Owes you …", "You owe …" or "All square ✅", from this phone's side. */
+  /**
+   * "Owes you …", "You owe …" or "All square ✅", from this phone's side; with more than two
+   * people in the account (`balance` null), a warning instead: no balance is claimed.
+   */
   balanceText(balance, currency) {
     if (!isCurrency(currency)) return "";
+    if (balance === null) return this.T("crowded");
     if (balance > 0) return this.T("owesYou", { amount: this.money(balance, currency) });
     if (balance < 0) return this.T("youOwe", { amount: this.money(-balance, currency) });
     return this.T("even");
@@ -241,11 +245,16 @@ class SplitElement extends HTMLElement {
     return session;
   }
 
+  /**
+   * Says hello. An account already shared belongs to those two people: from it, 🔄 only ever
+   * resumes with the known twin, so going live in another conversation gives nothing to whoever
+   * is there (they do not answer, and after ~8 s the usual notice says so).
+   */
   async startLive({ resume = false } = {}) {
     if (!this.account) return;
     this.session ??= this.makeSession(this.account);
     this.paintStatus();
-    await this.session.start({ resume, title: this.account.name });
+    await this.session.start({ resume: resume || Boolean(this.account.peer), title: this.account.name });
   }
 
   async toggleLive() {
@@ -265,6 +274,8 @@ class SplitElement extends HTMLElement {
     const message = this.inbox.take(data);
     if (!message) return;
     if (this.session && message.doc === this.session.doc) {
+      // An account two people share takes nothing from a third.
+      if (this.account?.peer && message.who !== this.account.peer) return;
       await this.session.hear(message);
       return;
     }
@@ -278,8 +289,10 @@ class SplitElement extends HTMLElement {
     if (message.k !== HELLO || !this.mayLive || typeof message.sv !== "string") return;
     const here = this.account && this.account.id === message.doc ? this.account : null;
     const known = here ?? (await this.keeper.load(message.doc));
-    // A resumed hello only reopens what this phone shared with that same person.
-    if (message.resume && (!known || (known.peer && known.peer !== message.who))) return;
+    // A resumed hello only reopens what this phone shared; an account two people share is never
+    // joined by a third, whether the hello resumes or not.
+    if (message.resume && !known) return;
+    if (known?.peer && known.peer !== message.who) return;
     if (known?.readOnly) return;
     if (this.screen === "account" && this.account && !here) {
       const title = typeof message.title === "string" ? message.title.slice(0, MAX_NAME) : "";
@@ -472,7 +485,7 @@ class SplitElement extends HTMLElement {
 
   /** 📤: the summary in the composer. The app closes the plugin, so leave cleanly first. */
   async sendSummary() {
-    if (!this.account?.ready) return;
+    if (!this.account?.ready || this.account.crowded) return;
     const text = this.summary();
     await this.leave();
     this.ft.say(text);
@@ -492,7 +505,7 @@ class SplitElement extends HTMLElement {
 
   /** What decides which parts the account screen has: when it changes, the screen is drawn again. */
   shapeOf() {
-    return this.account ? `${this.account.ready}/${this.account.readOnly}` : "";
+    return this.account ? `${this.account.ready}/${this.account.readOnly}/${this.account.crowded}` : "";
   }
 
   paint() {
@@ -525,7 +538,7 @@ class SplitElement extends HTMLElement {
             <button type="button" class="danger" data-act="confirmDelete" data-id="${escape(meta.id)}">${escape(T("delete"))}</button>
             <button type="button" data-act="cancelDelete">${escape(T("cancel"))}</button></li>`;
         }
-        const balance = Number.isSafeInteger(meta.balance) ? this.balanceText(meta.balance, meta.currency) : "";
+        const balance = meta.balance === null || Number.isSafeInteger(meta.balance) ? this.balanceText(meta.balance, meta.currency) : "";
         const shared = meta.shared ? ` · 🔄 ${T("shared")}` : "";
         return `<li><button type="button" class="open" data-act="open" data-id="${escape(meta.id)}"><span class="title">${escape(name)}</span><span class="meta">${escape(`${balance}${shared}`)}</span></button>
           ${button("delete", T("delete"), "trash-outline", `data-id="${escape(meta.id)}"`)}</li>`;
@@ -577,7 +590,7 @@ class SplitElement extends HTMLElement {
       ${title}
       ${!this.renaming && account.writable ? button("rename", T("rename"), "pencil-outline") : ""}
       ${this.mayLive && !account.readOnly ? `<button type="button" data-act="live" class="${live ? "on" : ""}" aria-pressed="${live ? "true" : "false"}" aria-label="${escape(live ? T("stopLive") : T("live"))}">🔄 ${escape(T("live"))}</button>` : ""}
-      ${account.ready ? button("send", T("send"), "send-outline") : ""}
+      ${account.ready && !account.crowded ? button("send", T("send"), "send-outline") : ""}
       ${button("close", T("close"), "close-outline")}`;
   }
 
@@ -639,17 +652,18 @@ class SplitElement extends HTMLElement {
     }
     const T = (key, holes) => this.T(key, holes);
     const { total, balance } = account.totals();
-    if (balance === 0) this.settling = false;
+    const known = balance !== null;
+    if (!known || balance === 0) this.settling = false;
     let settle = "";
     if (this.settling && account.writable) {
       const ask = balance > 0 ? T("settleTheyPay", { amount: this.money(balance) }) : T("settleYouPay", { amount: this.money(-balance) });
       settle = `<div class="confirm"><span>${escape(ask)}</span>
         <button type="button" data-act="confirmSettle">${escape(T("settle"))}</button>
         <button type="button" data-act="cancelSettle">${escape(T("cancel"))}</button></div>`;
-    } else if (balance !== 0 && account.writable) {
+    } else if (known && balance !== 0 && account.writable) {
       settle = `<button type="button" data-act="settle">${escape(T("settle"))}</button>`;
     }
-    node.innerHTML = `<p class="balance" data-balance>${escape(this.balanceText(balance, account.currency))}</p>
+    node.innerHTML = `<p class="${known ? "balance" : "warn"}" data-balance>${escape(this.balanceText(balance, account.currency))}</p>
       <p class="meta" data-total>${escape(T("total", { amount: this.money(total) }))}</p>${settle}`;
   }
 
