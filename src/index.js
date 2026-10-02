@@ -1,7 +1,7 @@
 // Split for FlickerTalk (plan-plugins-nuevos §8): shared expenses between two people, kept on this
 // phone. Accounts with one currency each; an expense has an amount, what it was for, who paid and
 // how it splits (in half, or all of it for the one who did not pay); the balance says who owes
-// whom; "💸 Settle up" records the payment that evens it. From a conversation, "🔄 Live" lets the
+// whom; "Settle up" records the payment that evens it. From a conversation, "Live" lets the
 // two phones keep one account at once over the core's direct channel (`live.js`); what each does
 // apart is kept here and joins the other's when both have it open. 📤 puts a summary in the
 // composer, said by whoever sends it. Nothing leaves this frame but what the user sends, and what
@@ -13,6 +13,7 @@
 
 import { name as APP_NAME, version as APP_VERSION } from "../module.json";
 import { dirOf, makeT } from "./i18n.js";
+import { icon } from "./icons.js";
 import { HELLO, Inbox, LiveSession, inOrder, isNewer } from "./live.js";
 import { yjsReplica } from "./live-yjs.js";
 import { ALL, Account, HALF, LOCAL_PLACE, MAX_NAME, MAX_NICK, MAX_WHAT, SETTLE, placeOf } from "./model.js";
@@ -33,12 +34,18 @@ const escape = (text) =>
 
 const STYLE = `
 :host { display: block; font: 15px system-ui, sans-serif; color: #111; --paper: #fff; --line: #d8d8d8; --soft: #666; --accent: #e0562b; --good: #1f8a4c; }
+/* Dark when the app says so (the attribute, set in onOpen, which WebKit understands), or, as a
+   fallback while the app always says light, when the system is dark. */
 @media (prefers-color-scheme: dark) { :host { color: #f4f4f4; --paper: #111; --line: #3a3a3a; --soft: #aaa; --good: #5fd08f; } }
-:host-context([data-dark]) { color: #f4f4f4; --paper: #111; --line: #3a3a3a; --soft: #aaa; --good: #5fd08f; }
+:host([dark]) { color: #f4f4f4; --paper: #111; --line: #3a3a3a; --soft: #aaa; --good: #5fd08f; }
 * { box-sizing: border-box; }
 .bar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 4px 0 8px; }
 .grow { flex: 1; min-width: 0; }
-h1 { font-size: 18px; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+h1 { font-size: 18px; margin: 0; overflow-wrap: anywhere; }
+/* An account's title has a line of its own, whole and wrapping, above its row of buttons: on a
+   narrow phone a row with six buttons would leave it two letters. */
+.title-line { padding: 4px 0 0; overflow-wrap: anywhere; }
+.title-line .form input { flex: 1; }
 button {
   appearance: none; border: 1px solid currentColor; background: transparent; color: inherit;
   border-radius: 10px; min-width: 44px; height: 44px; font: inherit; padding: 0 10px; cursor: pointer; opacity: .8;
@@ -47,8 +54,20 @@ button.on { opacity: 1; box-shadow: inset 0 0 0 2px currentColor; }
 button.danger { color: var(--accent); }
 button.plain { border: 0; }
 .i { display: block; width: 22px; height: 22px; margin: auto; background: currentColor; -webkit-mask: var(--i) center/contain no-repeat; mask: var(--i) center/contain no-repeat; }
-form { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 0; }
-form.wide { flex: 1; }
+.i.own { background: none; -webkit-mask: none; mask: none; }
+.i svg { display: block; width: 100%; height: 100%; fill: currentColor; }
+.with { display: flex; gap: 6px; align-items: center; }
+.with > .i, button > .i + span, .what > .i { flex: none; }
+.with > .i, .what > .i, .meta .i, button.text .i { display: inline-block; width: 18px; height: 18px; margin: 0; vertical-align: -3px; }
+button.text { display: inline-flex; gap: 6px; align-items: center; }
+/* The plugin never uses form elements: its frame is sandboxed without allow-forms, and Android's WebView
+   blocks submitting one. Fields and their button sit in a .form box; the button or Enter acts. */
+.form { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 0; }
+.form.wide { flex: 1; }
+/* On a tablet the content keeps a comfortable width, centred; a phone is narrower anyway. */
+.view { max-inline-size: 640px; margin-inline: auto; }
+.preview { margin: 0; width: 100%; color: var(--soft); font-size: 13px; font-variant-numeric: tabular-nums; }
+.preview:empty { display: none; }
 .row { display: flex; gap: 6px; width: 100%; }
 input, select { flex: 1; min-width: 0; font: inherit; color: inherit; background: transparent; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; height: 44px; }
 select { flex: 0 1 40%; }
@@ -57,7 +76,7 @@ input[name="amount"] { flex: 0 1 35%; }
 .choices button { flex: 1 1 40%; }
 ul { list-style: none; margin: 8px 0 0; padding: 0; }
 li { display: flex; align-items: center; gap: 8px; border-bottom: 1px solid var(--line); min-height: 52px; }
-li form { padding: 8px 0; width: 100%; }
+li .form { padding: 8px 0; width: 100%; }
 li .open { flex: 1; display: flex; flex-direction: column; align-items: flex-start; text-align: start; border: 0; border-radius: 0; height: auto; padding: 10px 4px; opacity: 1; }
 .main { flex: 1; display: flex; flex-direction: column; padding: 8px 0; min-width: 0; }
 .what { overflow-wrap: anywhere; }
@@ -79,15 +98,21 @@ li .open { flex: 1; display: flex; flex-direction: column; align-items: flex-sta
 .nick { margin-top: 16px; }
 `;
 
-const icon = (name) => `<i class="i" style="--i:url(./icon/${name}.svg)"></i>`;
 const button = (act, label, name, extra = "") => `<button type="button" data-act="${act}" aria-label="${escape(label)}" ${extra}>${icon(name)}</button>`;
+
+/** A line of text with its icon beside it (the icon is hidden from screen readers). */
+const withIcon = (name, text) => `${icon(name)}<span>${escape(text)}</span>`;
+/** The icon of each live status. */
+const STATUS_ICONS = { waiting: "sync-outline", joined: "sync-outline", silent: "person-outline", unreachable: "cloud-offline-outline", left: "log-out-outline", outdated: "download-outline" };
 
 /** The plugin's view: the accounts this phone keeps, or one account. */
 class SplitElement extends HTMLElement {
   constructor() {
     super();
     this.root = this.attachShadow({ mode: "open" });
-    this.lang = "en";
+    // Not `this.lang`: that is HTMLElement's reflected attribute, and a custom element's
+    // constructor may not leave attributes (a browser throws for document.createElement).
+    this.language = "en";
     this.mayLive = false;
     this.screen = "home";
     this.metas = [];
@@ -115,7 +140,7 @@ class SplitElement extends HTMLElement {
     this.root.innerHTML = `<style>${STYLE}</style><div class="view"></div>`;
     this.view = this.root.querySelector(".view");
     this.root.addEventListener("click", (event) => this.onClick(event));
-    this.root.addEventListener("submit", (event) => this.onSubmit(event));
+    this.root.addEventListener("input", (event) => this.onInput(event));
     this.root.addEventListener("keydown", (event) => this.onKey(event));
     this.ft.onOpen((opening) => this.onOpen(opening));
     // The frame does not wait for one message to be handled before handing the next.
@@ -131,19 +156,19 @@ class SplitElement extends HTMLElement {
   }
 
   T(key, holes = {}) {
-    return t(this.lang, key, { app: APP_NAME, ...holes });
+    return t(this.language, key, { app: APP_NAME, ...holes });
   }
 
   /** An amount of the open account, as the phone's language writes it. */
   money(minor, currency = this.account?.currency) {
-    return formatMoney(minor, currency, this.lang);
+    return formatMoney(minor, currency, this.language);
   }
 
   /** An amount as one types it: no symbol, no grouping, the language's decimal mark. */
   plainAmount(minor) {
     let mark = ".";
     try {
-      mark = new Intl.NumberFormat(this.lang).formatToParts(1.5).find((part) => part.type === "decimal")?.value ?? ".";
+      mark = new Intl.NumberFormat(this.language).formatToParts(1.5).find((part) => part.type === "decimal")?.value ?? ".";
     } catch {
       mark = ".";
     }
@@ -151,7 +176,7 @@ class SplitElement extends HTMLElement {
   }
 
   /**
-   * "Owes you …", "You owe …" or "All square ✅", from this phone's side; with more than two
+   * "Owes you …", "You owe …" or "All square", from this phone's side; with more than two
    * people in the account (`balance` null), a warning instead: no balance is claimed.
    */
   balanceText(balance, currency) {
@@ -162,9 +187,18 @@ class SplitElement extends HTMLElement {
     return this.T("even");
   }
 
+  /** The balance as painted: the text, with an icon when even or when no balance can be told. */
+  balanceHtml(balance, currency) {
+    const text = this.balanceText(balance, currency);
+    if (!text) return "";
+    if (balance === null) return withIcon("alert-circle-outline", text);
+    if (balance === 0) return withIcon("checkmark-circle-outline", text);
+    return `<span>${escape(text)}</span>`;
+  }
+
   currencyName(code) {
     try {
-      return new Intl.DisplayNames(this.lang, { type: "currency" }).of(code) ?? code;
+      return new Intl.DisplayNames(this.language, { type: "currency" }).of(code) ?? code;
     } catch {
       return code;
     }
@@ -173,7 +207,7 @@ class SplitElement extends HTMLElement {
   // ---- What the app hands over ----
 
   async onOpen(opening) {
-    this.lang = opening.lang || "en";
+    this.language = opening.lang || "en";
     const place = placeOf(opening.chat);
     if (place !== this.place) {
       await this.leave();
@@ -183,8 +217,10 @@ class SplitElement extends HTMLElement {
     }
     // Live needs a conversation to keep the account in: without a valid chat, never live.
     this.mayLive = Boolean(opening.live) && place !== LOCAL_PLACE;
-    this.setAttribute("lang", this.lang);
-    this.setAttribute("dir", dirOf(this.lang));
+    this.setAttribute("lang", this.language);
+    if (opening.dark) this.setAttribute("dark", "");
+    else this.removeAttribute("dark");
+    this.setAttribute("dir", dirOf(this.language));
     this.metas = await this.keeper.index();
     this.paint();
   }
@@ -362,6 +398,8 @@ class SplitElement extends HTMLElement {
         return this.paint();
       case "choose":
         return this.choose(target.dataset);
+      case "submit":
+        return this.submit(target.closest("[data-form]"));
       case "edit":
         return this.startEdit(id);
       case "cancelEdit":
@@ -386,7 +424,7 @@ class SplitElement extends HTMLElement {
       case "rename":
         this.renaming = true;
         this.paintHeader();
-        return this.view.querySelector('form[data-form="rename"] input')?.focus?.();
+        return this.view.querySelector('[data-form="rename"] input')?.focus?.();
       case "live":
         return this.toggleLive();
       case "send":
@@ -419,13 +457,13 @@ class SplitElement extends HTMLElement {
     this.editing = id;
     this.editDraft = { iPaid: one.mine, split: one.split };
     this.paintEntries();
-    this.view.querySelector('form[data-form="edit"] input')?.focus?.();
+    this.view.querySelector('[data-form="edit"] input')?.focus?.();
+    this.paintPreview(this.view.querySelector('[data-form="edit"]'));
   }
 
-  async onSubmit(event) {
-    const form = event.target.closest("form[data-form]");
+  /** What one action's fields ask for: its button was pressed, or Enter in one of its fields. */
+  async submit(form) {
     if (!form) return;
-    event.preventDefault();
     const field = (name) => form.querySelector(`[name="${name}"]`);
     const value = field("value")?.value ?? "";
     switch (form.dataset.form) {
@@ -461,6 +499,7 @@ class SplitElement extends HTMLElement {
     if (!account.add({ amount, what: whatInput.value, iPaid: this.draft.iPaid, split: this.draft.split })) return whatInput.focus?.();
     amountInput.value = "";
     whatInput.value = "";
+    this.paintPreview(amountInput.closest("[data-form]"));
     amountInput.focus?.();
   }
 
@@ -485,7 +524,35 @@ class SplitElement extends HTMLElement {
     this.paintEntries();
   }
 
+  /** Typing an amount: show at once what it will be written as. */
+  onInput(event) {
+    if (event.target?.name === "amount") this.paintPreview(event.target.closest("[data-form]"));
+  }
+
+  /**
+   * Under an amount field, the amount as it will be written ("= €1,250.00"), or how to write one.
+   * A keypad without a decimal comma turns "12,50" into "1250": this is where it shows.
+   */
+  paintPreview(form) {
+    const field = form?.querySelector('[name="amount"]');
+    const node = form?.querySelector("[data-preview]");
+    if (!field || !node || !this.account?.ready) return;
+    const text = field.value.trim();
+    const amount = text ? parseAmount(text, this.account.currency) : null;
+    node.textContent = !text ? "" : amount === null ? this.T("badAmount", { example: this.plainAmount(EXAMPLE) }) : `= ${this.money(amount)}`;
+  }
+
   onKey(event) {
+    // Enter in a field does its action, unless it only ends a word being composed.
+    if (event.key === "Enter" && !event.isComposing && event.keyCode !== 229) {
+      const field = event.target;
+      const form = field?.tagName === "INPUT" ? field.closest("[data-form]") : null;
+      if (form) {
+        event.preventDefault();
+        this.submit(form);
+      }
+      return;
+    }
     if (event.key !== "Escape") return;
     if (this.editing) {
       this.editing = null;
@@ -504,9 +571,17 @@ class SplitElement extends HTMLElement {
     return [`🧾 ${account.name || this.pendingTitle || this.T("untitled")}`, this.T("sumTotal", { amount: this.money(total) }), this.T("sumMine", { amount: this.money(mine) }), this.T("sumTheirs", { amount: this.money(theirs) }), owe].join(" · ");
   }
 
-  /** 📤: the summary in the composer. The app closes the plugin, so leave cleanly first. */
+  /** Whether there is a composer to put the summary in: only in a conversation. */
+  get maySay() {
+    return this.place !== LOCAL_PLACE;
+  }
+
+  /**
+   * 📤: the summary in the composer. The app closes the plugin, so leave cleanly first. Outside a
+   * conversation there is no composer: nothing happens, and the account stays on screen.
+   */
   async sendSummary() {
-    if (!this.account?.ready || this.account.crowded) return;
+    if (!this.maySay || !this.account?.ready || this.account.crowded) return;
     const text = this.summary();
     await this.leave();
     this.ft.say(text);
@@ -559,43 +634,44 @@ class SplitElement extends HTMLElement {
             <button type="button" class="danger" data-act="confirmDelete" data-id="${escape(meta.id)}">${escape(T("delete"))}</button>
             <button type="button" data-act="cancelDelete">${escape(T("cancel"))}</button></li>`;
         }
-        const balance = meta.balance === null || Number.isSafeInteger(meta.balance) ? this.balanceText(meta.balance, meta.currency) : "";
-        const shared = meta.shared ? ` · 🔄 ${T("shared")}` : "";
-        return `<li><button type="button" class="open" data-act="open" data-id="${escape(meta.id)}"><span class="title">${escape(name)}</span><span class="meta">${escape(`${balance}${shared}`)}</span></button>
+        const balance = meta.balance === null || Number.isSafeInteger(meta.balance) ? this.balanceHtml(meta.balance, meta.currency) : "";
+        const shared = meta.shared ? `${balance ? " · " : ""}${withIcon("sync-outline", T("shared"))}` : "";
+        return `<li><button type="button" class="open" data-act="open" data-id="${escape(meta.id)}"><span class="title">${escape(name)}</span><span class="meta">${balance}${shared}</span></button>
           ${button("delete", T("delete"), "trash-outline", `data-id="${escape(meta.id)}"`)}</li>`;
       })
       .join("");
     return `
       <div class="bar"><h1 class="grow">${escape(T("title"))}</h1>${button("close", T("close"), "close-outline")}</div>
-      <p class="hint">👥 ${escape(T("forTwo"))}</p>
-      ${this.place === LOCAL_PLACE ? `<p class="hint" data-local>📱 ${escape(T("localOnly"))}</p>` : ""}
-      <form data-form="new"><input name="value" maxlength="${MAX_NAME}" autocomplete="off" placeholder="${escape(T("namePlaceholder"))}" aria-label="${escape(T("newAccount"))}"><select name="currency" aria-label="${escape(T("currency"))}">${options}</select><button type="submit" aria-label="${escape(T("newAccount"))}">${icon("add-outline")}</button></form>
+      <p class="hint with">${withIcon("people-outline", T("forTwo"))}</p>
+      ${this.place === LOCAL_PLACE ? `<p class="hint with" data-local>${withIcon("phone-portrait-outline", T("localOnly"))}</p>` : ""}
+      <div class="form" data-form="new"><input type="text" name="value" maxlength="${MAX_NAME}" autocomplete="off" placeholder="${escape(T("namePlaceholder"))}" aria-label="${escape(T("newAccount"))}"><select name="currency" aria-label="${escape(T("currency"))}">${options}</select><button type="button" data-act="submit" aria-label="${escape(T("newAccount"))}">${icon("add-outline")}</button></div>
       ${rows ? `<ul>${rows}</ul>` : `<p class="empty">${escape(T("empty"))}</p>`}`;
   }
 
   accountScreen() {
     const T = (key) => this.T(key);
     const account = this.account;
-    const note = account.readOnly ? T("readOnly") : account.ready ? "" : T("waitingData");
+    const note = account.readOnly ? withIcon("download-outline", T("readOnly")) : account.ready ? "" : withIcon("sync-outline", T("waitingData"));
     const writable = account.writable;
     return `
-      <div class="bar" data-header></div>
-      <p class="status" data-status aria-live="polite"></p>
+      <div class="header" data-header></div>
+      <p class="status with" data-status aria-live="polite"></p>
       <p class="hint" data-hint>${escape(this.mayLive ? T("liveHint") : T("needsChat"))}</p>
-      <p class="hint">👥 ${escape(T("forTwo"))}</p>
-      <p class="warn" data-warning role="alert"></p>
-      <p class="note">${escape(note)}</p>
+      <p class="hint with">${withIcon("people-outline", T("forTwo"))}</p>
+      <p class="warn with" data-warning role="alert"></p>
+      <p class="note with">${note}</p>
       <div class="invite" data-invite></div>
       <div data-summary aria-live="polite"></div>
       ${
         writable
-          ? `<form data-form="add"><div class="row"><input name="amount" inputmode="decimal" autocomplete="off" maxlength="24" placeholder="${escape(T("amount"))}" aria-label="${escape(T("amount"))}"><input name="what" maxlength="${MAX_WHAT}" autocomplete="off" enterkeyhint="done" placeholder="${escape(T("what"))}" aria-label="${escape(T("what"))}"></div>
+          ? `<div class="form" data-form="add"><div class="row"><input type="text" name="amount" inputmode="decimal" autocomplete="off" maxlength="24" placeholder="${escape(T("amount"))}" aria-label="${escape(T("amount"))}"><input type="text" name="what" maxlength="${MAX_WHAT}" autocomplete="off" enterkeyhint="done" placeholder="${escape(T("what"))}" aria-label="${escape(T("what"))}"></div>
+             <p class="preview" data-preview aria-live="polite"></p>
              <div class="choices" data-choices="add"></div><p class="warn" data-error role="alert"></p>
-             <button type="submit" aria-label="${escape(T("add"))}">${icon("add-outline")}</button></form>`
+             <button type="button" data-act="submit" aria-label="${escape(T("add"))}">${icon("add-outline")}</button></div>`
           : ""
       }
       <ul data-entries></ul>
-      ${writable ? `<form class="nick" data-form="nick"><input name="value" maxlength="${MAX_NICK}" autocomplete="off" value="${escape(account.nick)}" placeholder="${escape(T("nick"))}" aria-label="${escape(T("nick"))}"><button type="submit" aria-label="${escape(T("save"))}">${icon("checkmark-outline")}</button></form>` : ""}`;
+      ${writable ? `<div class="form nick" data-form="nick"><input type="text" name="value" maxlength="${MAX_NICK}" autocomplete="off" value="${escape(account.nick)}" placeholder="${escape(T("nick"))}" aria-label="${escape(T("nick"))}"><button type="button" data-act="submit" aria-label="${escape(T("save"))}">${icon("checkmark-outline")}</button></div>` : ""}`;
   }
 
   paintHeader() {
@@ -605,15 +681,16 @@ class SplitElement extends HTMLElement {
     const account = this.account;
     const live = this.session && (this.status === "joined" || this.status === "waiting");
     const title = this.renaming
-      ? `<form class="wide" data-form="rename"><input name="value" maxlength="${MAX_NAME}" autocomplete="off" value="${escape(account.name)}" aria-label="${escape(T("rename"))}"><button type="submit" aria-label="${escape(T("save"))}">${icon("checkmark-outline")}</button></form>`
-      : `<h1 class="grow" data-name>${escape(this.nameOf())}</h1>`;
-    header.innerHTML = `
+      ? `<div class="form wide" data-form="rename"><input type="text" name="value" maxlength="${MAX_NAME}" autocomplete="off" value="${escape(account.name)}" aria-label="${escape(T("rename"))}"><button type="button" data-act="submit" aria-label="${escape(T("save"))}">${icon("checkmark-outline")}</button></div>`
+      : `<h1 data-name>${escape(this.nameOf())}</h1>`;
+    header.innerHTML = `<div class="title-line">${title}</div>
+      <div class="bar">
       ${button("back", T("back"), "arrow-back-outline")}
-      ${title}
       ${!this.renaming && account.writable ? button("rename", T("rename"), "pencil-outline") : ""}
-      ${this.mayLive && !account.readOnly ? `<button type="button" data-act="live" class="${live ? "on" : ""}" aria-pressed="${live ? "true" : "false"}" aria-label="${escape(live ? T("stopLive") : T("live"))}">🔄 ${escape(T("live"))}</button>` : ""}
-      ${account.ready && !account.crowded ? button("send", T("send"), "send-outline") : ""}
-      ${button("close", T("close"), "close-outline")}`;
+      ${this.mayLive && !account.readOnly ? `<button type="button" data-act="live" aria-pressed="${live ? "true" : "false"}" aria-label="${escape(live ? T("stopLive") : T("live"))}" class="text${live ? " on" : ""}">${withIcon("sync-outline", T("live"))}</button>` : ""}
+      ${this.maySay && account.ready && !account.crowded ? button("send", T("send"), "send-outline") : ""}
+      ${button("close", T("close"), "close-outline")}
+      </div>`;
   }
 
   nameOf() {
@@ -638,12 +715,13 @@ class SplitElement extends HTMLElement {
       left: `${T("left")} ${T("kept")}`,
       outdated: T("outdated"),
     };
-    node.textContent = texts[this.status] ?? "";
+    const text = texts[this.status];
+    node.innerHTML = text ? withIcon(STATUS_ICONS[this.status], text) : "";
   }
 
   paintWarning() {
     const node = this.view?.querySelector("[data-warning]");
-    if (node) node.textContent = this.keeper.full ? this.T("full") : "";
+    if (node) node.innerHTML = this.keeper.full ? withIcon("alert-circle-outline", this.T("full")) : "";
   }
 
   paintError() {
@@ -658,12 +736,12 @@ class SplitElement extends HTMLElement {
       node.innerHTML = "";
       return;
     }
-    node.innerHTML = `<span>${escape(this.T("joinPrompt", { name: this.invite.name }))}</span>
+    node.innerHTML = `<span class="with">${withIcon("log-in-outline", this.T("joinPrompt", { name: this.invite.name }))}</span>
       <button type="button" data-act="join">${escape(this.T("join"))}</button>
       <button type="button" data-act="notNow">${escape(this.T("notNow"))}</button>`;
   }
 
-  /** The balance, what was spent, and "💸 Settle up" (asked inside the plugin, never with confirm()). */
+  /** The balance, what was spent, and "Settle up" (asked inside the plugin, never with confirm()). */
   paintSummary() {
     const node = this.view?.querySelector("[data-summary]");
     const account = this.account;
@@ -680,12 +758,12 @@ class SplitElement extends HTMLElement {
     if (this.settling && account.writable) {
       const ask = balance > 0 ? T("settleTheyPay", { amount: this.money(balance) }) : T("settleYouPay", { amount: this.money(-balance) });
       settle = `<div class="confirm"><span>${escape(ask)}</span>
-        <button type="button" data-act="confirmSettle">${escape(T("settle"))}</button>
+        <button type="button" class="text" data-act="confirmSettle">${withIcon("cash-outline", T("settle"))}</button>
         <button type="button" data-act="cancelSettle">${escape(T("cancel"))}</button></div>`;
     } else if (known && balance !== 0 && account.writable) {
-      settle = `<button type="button" data-act="settle">${escape(T("settle"))}</button>`;
+      settle = `<button type="button" class="text" data-act="settle">${withIcon("cash-outline", T("settle"))}</button>`;
     }
-    node.innerHTML = `<p class="${known ? "balance" : "warn"}" data-balance>${escape(this.balanceText(balance, account.currency))}</p>
+    node.innerHTML = `<p class="${known ? "balance" : "warn"} with" data-balance>${this.balanceHtml(balance, account.currency)}</p>
       <p class="meta" data-total>${escape(T("total", { amount: this.money(total) }))}</p>${settle}`;
   }
 
@@ -727,7 +805,7 @@ class SplitElement extends HTMLElement {
     const entries = account.entries();
     if (this.editing && !entries.some((one) => one.id === this.editing)) this.editing = null;
     // What is being typed in the row being edited survives a change from the other phone.
-    const form = node.querySelector('form[data-form="edit"]');
+    const form = node.querySelector('[data-form="edit"]');
     const draft = form && form.closest("li")?.dataset.editing === this.editing ? { amount: form.querySelector('[name="amount"]')?.value, what: form.querySelector('[name="what"]')?.value } : null;
     const T = (key) => this.T(key);
     const writable = account.writable;
@@ -736,21 +814,22 @@ class SplitElement extends HTMLElement {
       if (one.id === this.editing && writable) {
         const fields = settlement
           ? ""
-          : `<div class="row"><input name="amount" inputmode="decimal" autocomplete="off" maxlength="24" value="${escape(this.plainAmount(one.amount))}" aria-label="${escape(T("amount"))}"><input name="what" maxlength="${MAX_WHAT}" autocomplete="off" value="${escape(one.what)}" aria-label="${escape(T("what"))}"></div>
+          : `<div class="row"><input type="text" name="amount" inputmode="decimal" autocomplete="off" maxlength="24" value="${escape(this.plainAmount(one.amount))}" aria-label="${escape(T("amount"))}"><input type="text" name="what" maxlength="${MAX_WHAT}" autocomplete="off" value="${escape(one.what)}" aria-label="${escape(T("what"))}"></div>
+             <p class="preview" data-preview aria-live="polite"></p>
              <div class="choices" data-choices="edit"></div><p class="warn" data-edit-error role="alert"></p>
-             <button type="submit" aria-label="${escape(T("save"))}">${icon("checkmark-outline")}</button>`;
-        return `<li data-editing="${escape(one.id)}"><form class="wide" data-form="edit">${fields}
-          ${button("remove", T("remove"), "trash-outline", 'class="danger"')}${button("cancelEdit", T("cancel"), "close-outline")}</form></li>`;
+             <button type="button" data-act="submit" aria-label="${escape(T("save"))}">${icon("checkmark-outline")}</button>`;
+        return `<li data-editing="${escape(one.id)}"><div class="form wide" data-form="edit">${fields}
+          ${button("remove", T("remove"), "trash-outline", 'class="danger"')}${button("cancelEdit", T("cancel"), "close-outline")}</div></li>`;
       }
-      const what = settlement ? T("settled") : one.what;
+      const what = settlement ? withIcon("cash-outline", T("settled")) : escape(one.what);
       const who = settlement ? this.paidLabel(one.mine) : `${this.paidLabel(one.mine)} · ${this.splitLabel(one.mine, one.split)}`;
       const edit = writable ? button("edit", T("edit"), "pencil-outline", `class="plain" data-id="${escape(one.id)}"`) : "";
-      return `<li data-entry="${escape(one.id)}" data-kind="${one.kind}"><div class="main"><span class="what">${escape(what)}</span><span class="who">${escape(who)}</span></div><span class="amount">${escape(this.money(one.amount))}</span>${edit}</li>`;
+      return `<li data-entry="${escape(one.id)}" data-kind="${one.kind}"><div class="main"><span class="what">${what}</span><span class="who">${escape(who)}</span></div><span class="amount">${escape(this.money(one.amount))}</span>${edit}</li>`;
     });
     node.innerHTML = rows.length ? rows.join("") : account.ready ? `<li class="empty">${escape(T("noExpenses"))}</li>` : "";
     this.paintChoices("edit");
     if (draft) {
-      const again = node.querySelector('form[data-form="edit"]');
+      const again = node.querySelector('[data-form="edit"]');
       if (again?.querySelector('[name="amount"]') && draft.amount !== undefined) again.querySelector('[name="amount"]').value = draft.amount;
       if (again?.querySelector('[name="what"]') && draft.what !== undefined) again.querySelector('[name="what"]').value = draft.what;
     }

@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { FORMAT } from "./src/index.js";
 import { HELLO, Inbox, UPDATE, VERSION, decode, encode, fromBase64 } from "./src/live.js";
 import { Account, LOCAL_PLACE, bodyKey, metaKey } from "./src/model.js";
+import { APP_ICONS, OWN_ICONS } from "./src/icons.js";
 import { connect, fakeCore } from "./test/fake-core.js";
 
 const manifest = JSON.parse(readFileSync(join(import.meta.dirname, "module.json"), "utf8"));
@@ -50,16 +51,31 @@ async function press(element, act, extra = "") {
   button.click();
   await settle(element);
 }
-/** Fills a form's fields by name and submits it. */
-async function fill(element, form, values) {
-  const node = inside(element).querySelector(`form[data-form="${form}"]`);
-  if (!node) throw new Error(`no form ${form}`);
+/** An Enter key on a field, as a keyboard sends it (`composing`: while a word is being composed). */
+const enter = (field, composing = false) => field.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, composed: true, cancelable: true, isComposing: composing }));
+
+/**
+ * Fills the fields of one action by name and does it as a finger would: the action's button
+ * (`click`), or Enter in its first field (`enter`, or `composing` for an Enter that only ends a
+ * word). Never a `submit` event: the plugin's frame is sandboxed without `allow-forms`, and
+ * Android's WebView blocks submitting a form there before any `submit` is fired.
+ */
+async function fill(element, form, values, how = "click") {
+  const node = inside(element).querySelector(`[data-form="${form}"]`);
+  if (!node) throw new Error(`no fields ${form}`);
   for (const [name, value] of Object.entries(typeof values === "string" ? { value: values } : values)) {
     const field = node.querySelector(`[name="${name}"]`);
     if (!field) throw new Error(`no field ${name} in ${form}`);
     field.value = value;
+    field.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
   }
-  node.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+  if (how === "click") {
+    const go = node.querySelector('[data-act="submit"]');
+    if (!go) throw new Error(`no button for ${form}`);
+    go.click();
+  } else {
+    enter(node.querySelector("input"), how === "composing");
+  }
   await settle(element);
 }
 const choose = (element, scope, field, value) => press(element, "choose", `[data-scope="${scope}"][data-field="${field}"][data-value="${value}"]`);
@@ -104,11 +120,11 @@ describe("one phone", () => {
     const element = await phone(core, { live: false });
     expect(inside(element).textContent).toContain("No accounts yet");
     expect(inside(element).textContent).toContain("For two people");
-    const currencies = [...inside(element).querySelectorAll('form[data-form="new"] select[name="currency"] option')].map((one) => one.value);
+    const currencies = [...inside(element).querySelectorAll('[data-form="new"] select[name="currency"] option')].map((one) => one.value);
     expect(currencies).toEqual(Intl.supportedValuesOf("currency"));
     await newAccount(element, "Lisboa");
     expect(inside(element).querySelector("[data-name]").textContent).toBe("Lisboa");
-    expect(balanceOf(element)).toBe("All square ✅");
+    expect(balanceOf(element)).toBe("All square");
 
     await spend(element, "12,50", "Dinner", "me", "half");
     expect(balanceOf(element)).toBe("Owes you €6.25");
@@ -179,8 +195,8 @@ describe("one phone", () => {
     expect(balanceOf(element)).toBe("Owes you €12.50");
     await press(element, "settle");
     await press(element, "confirmSettle");
-    expect(balanceOf(element)).toBe("All square ✅");
-    expect(rows(element)[0]).toBe("💸 Settled up €12.50 | The other person paid");
+    expect(balanceOf(element)).toBe("All square");
+    expect(rows(element)[0]).toBe("Settled up €12.50 | The other person paid");
     expect(inside(element).querySelector('[data-act="settle"]')).toBeNull();
     expect(globalThis.confirm).not.toHaveBeenCalled();
     delete globalThis.confirm;
@@ -203,7 +219,8 @@ describe("one phone", () => {
 
   it("proposes the summary in the chat, written from the sender's side and in their language", async () => {
     const core = fakeCore({ lang: "es" });
-    const element = await phone(core, { live: false });
+    // In a conversation: outside one there is no composer to put it in.
+    const element = await phone(core, { live: true });
     await newAccount(element, "Lisboa");
     await spend(element, "200", "Piso", "me", "half");
     await spend(element, "112,40", "Coche", "other", "half");
@@ -317,7 +334,7 @@ describe("two phones", () => {
     await spend(a, "10", "Coffee");
     await idle();
     expect(rows(b)).toEqual(["Coffee €10.00 | Ana paid · ½ Half each"]);
-    expect(inside(b).querySelector('form[data-form="nick"] input').value).toBe("");
+    expect(inside(b).querySelector('[data-form="nick"] input').value).toBe("");
   });
 
   it("keep what each did offline and join it when one goes live again", async () => {
@@ -723,3 +740,311 @@ describe("conversations", () => {
   });
 });
 
+describe("found in the iOS simulator", () => {
+  it("offers no ➤ outside a conversation, and sending there does nothing and leaves the account usable", async () => {
+    const core = fakeCore();
+    const element = await phone(core, { live: false });
+    await newAccount(element, "Mine");
+    await spend(element, "10", "Dinner");
+    expect(inside(element).querySelector('[data-act="send"]')).toBeNull();
+    await element.sendSummary();
+    await settle(element);
+    expect(core.ft.say).not.toHaveBeenCalled();
+    expect(element.account?.name).toBe("Mine");
+    await spend(element, "4", "Coffee");
+    expect(rows(element)).toHaveLength(2);
+  });
+
+  it("offers ➤ in a conversation, even without live allowed, and it puts the summary in the composer", async () => {
+    const core = fakeCore();
+    const element = await phone(core, { live: false, chat: chat("noLive") });
+    await newAccount(element, "Lisboa");
+    await spend(element, "10", "Dinner");
+    expect(inside(element).querySelector('[data-act="live"]')).toBeNull();
+    await press(element, "send");
+    expect(core.ft.say).toHaveBeenCalledTimes(1);
+    expect(plain(core.said[0])).toBe("🧾 Lisboa · total €10.00 · I paid €10.00 · you €0.00 · you owe me €5.00");
+  });
+
+  it("goes dark when the app says so, with an attribute WebKit understands", async () => {
+    const dark = await phone(fakeCore(), { live: false, dark: true });
+    expect(dark.hasAttribute("dark")).toBe(true);
+    const light = await phone(fakeCore(), { live: false, dark: false });
+    expect(light.hasAttribute("dark")).toBe(false);
+    // Opened again light, the attribute goes.
+    const core = fakeCore();
+    const again = await phone(core, { live: false, dark: true });
+    await core.open({ live: false, dark: false });
+    await settle(again);
+    expect(again.hasAttribute("dark")).toBe(false);
+    const css = inside(dark).querySelector("style").textContent;
+    expect(css).toContain(":host([dark])");
+    expect(css).toContain("prefers-color-scheme: dark");
+    expect(css).not.toContain(":host-context");
+  });
+});
+
+describe("icons, not emoji", () => {
+  const PICTOGRAPH = /\p{Extended_Pictographic}/u;
+
+  /** Everything the view paints, at many moments: what is on screen, attributes included. */
+  async function everyScreen() {
+    const shots = [];
+    const snap = (element) => shots.push(inside(element).innerHTML);
+    // Outside a conversation: empty, then accounts with a balance, even, and more than two people.
+    const local = fakeCore({ quota: 4000 });
+    const crowded = new Account({ name: "Crowded", currency: "EUR" });
+    crowded.add({ amount: 3000, what: "by a", iPaid: true, split: "half" });
+    for (const what of ["by b", "by c"]) {
+      const other = Account.parse(crowded.id, crowded.body());
+      other.add({ amount: 1000, what, iPaid: true, split: "half" });
+      const { encodeStateAsUpdate, applyUpdate } = await import("yjs");
+      applyUpdate(crowded.doc, encodeStateAsUpdate(other.doc));
+    }
+    local.records.set(bodyKey(LOCAL_PLACE, crowded.id), crowded.body());
+    local.records.set(metaKey(LOCAL_PLACE, crowded.id), crowded.meta());
+    const readOnly = new Account({ name: "Newer", currency: "EUR" });
+    readOnly.doc.getMap("info").set("schema", 99);
+    local.records.set(bodyKey(LOCAL_PLACE, readOnly.id), readOnly.body());
+    local.records.set(metaKey(LOCAL_PLACE, readOnly.id), readOnly.meta());
+    const one = await phone(local, { live: false });
+    snap(one);
+    await newAccount(one, "Even");
+    snap(one);
+    await press(one, "back");
+    await newAccount(one, "Lisboa");
+    await spend(one, "25", "Dinner");
+    await spend(one, "12,505", "Bad");
+    snap(one);
+    await press(one, "settle");
+    snap(one);
+    await press(one, "confirmSettle");
+    await press(one, "edit", `[data-id="${entryId(one, "Dinner")}"]`);
+    snap(one);
+    await press(one, "cancelEdit");
+    for (let at = 0; at < 30; at += 1) await spend(one, "1", `filling the little room there is ${at}`);
+    snap(one);
+    await press(one, "back");
+    snap(one);
+    await press(one, "open", `[data-id="${crowded.id}"]`);
+    snap(one);
+    await press(one, "back");
+    await press(one, "open", `[data-id="${readOnly.id}"]`);
+    snap(one);
+    await press(one, "back");
+    await press(one, "delete");
+    snap(one);
+    one.show(Account.received("waiting"));
+    snap(one);
+    // In conversations: live, joined, an invite, the other leaving, unreachable, silent, newer.
+    vi.useFakeTimers();
+    const { coreA, coreB, link, a, b, idle } = await twoPhones();
+    snap(a);
+    await newAccount(b, "Mine");
+    await newAccount(a, "Lisboa");
+    await spend(a, "30", "Hotel");
+    coreB.shut();
+    await press(a, "live");
+    snap(a);
+    await vi.advanceTimersByTimeAsync(8000);
+    await settle(a);
+    snap(a);
+    coreB.listening = true;
+    await press(a, "live");
+    await press(a, "live");
+    await idle();
+    snap(a);
+    snap(b);
+    await press(b, "join");
+    await idle();
+    snap(a);
+    snap(b);
+    link.down();
+    await spend(a, "1", "Offline");
+    snap(a);
+    link.up();
+    await press(b, "back");
+    await idle();
+    snap(a);
+    await coreA.hear(encode({ p: "ftsplit", v: VERSION + 1, k: UPDATE, doc: a.account.id, who: b.account?.who ?? "w", app: "2.0.0", u: "AAA=" }));
+    await settle(a);
+    snap(a);
+    return shots;
+  }
+
+  it("paints no emoji anywhere: every screen, every state, every attribute", async () => {
+    const shots = await everyScreen();
+    expect(shots.length).toBeGreaterThan(15);
+    for (const html of shots) expect(html.match(PICTOGRAPH)?.[0] ?? null, html.slice(0, 300)).toBeNull();
+  });
+
+  it("asks the app only for icons it lends, carries the rest, and every button can be named", async () => {
+    const shots = await everyScreen();
+    const asked = new Set(shots.flatMap((html) => [...html.matchAll(/\.\/icon\/([a-z0-9-]+)\.svg/g)].map((match) => match[1])));
+    expect(asked.size).toBeGreaterThan(4);
+    for (const name of asked) expect(APP_ICONS.has(name), name).toBe(true);
+    const inline = shots.reduce((sum, html) => sum + (html.match(/<i class="i own"/g)?.length ?? 0), 0);
+    expect(inline).toBeGreaterThan(10);
+    for (const html of shots) {
+      const box = document.createElement("div");
+      box.innerHTML = html;
+      for (const button of box.querySelectorAll("button")) {
+        const named = (button.getAttribute("aria-label") ?? "").trim() || button.textContent.trim();
+        expect(named, button.outerHTML).not.toBe("");
+      }
+      for (const drawn of box.querySelectorAll("i.i")) expect(drawn.getAttribute("aria-hidden") === "true" || drawn.hasAttribute("aria-label"), drawn.outerHTML).toBe(true);
+      // A button with an icon and a text lays them out side by side (one class attribute only).
+      for (const button of box.querySelectorAll('[data-act="live"], [data-act="settle"], [data-act="confirmSettle"]')) expect(button.classList.contains("text"), button.outerHTML).toBe(true);
+    }
+    expect(OWN_ICONS).toEqual(expect.arrayContaining(["sync-outline", "cash-outline", "people-outline", "phone-portrait-outline", "checkmark-circle-outline", "alert-circle-outline"]));
+  });
+
+  it("paints no <form> anywhere: the sandboxed frame on Android would block it", async () => {
+    for (const html of await everyScreen()) expect(html).not.toMatch(/<form[\s>]/i);
+  });
+
+  it("keeps its emoji only in the text it proposes for the chat", async () => {
+    const core = fakeCore();
+    const element = await phone(core);
+    await newAccount(element, "Lisboa");
+    await press(element, "send");
+    expect(core.said[0]).toMatch(/^🧾 Lisboa · .* · we're even ✅$/u);
+  });
+});
+
+describe("found on Android phones", () => {
+  it("does each action with its button and with Enter, with no form to submit", async () => {
+    for (const how of ["click", "enter"]) {
+      const core = fakeCore();
+      const element = await phone(core);
+      await fill(element, "new", { value: "Lisboa", currency: "EUR" }, how);
+      expect(element.account?.name, how).toBe("Lisboa");
+      await choose(element, "add", "paid", "me");
+      await fill(element, "add", { amount: "10", what: "Dinner" }, how);
+      expect(rows(element), how).toEqual(["Dinner €10.00 | I paid · ½ Half each"]);
+      await press(element, "edit", `[data-id="${entryId(element, "Dinner")}"]`);
+      await fill(element, "edit", { amount: "12", what: "Dinner out" }, how);
+      expect(rows(element), how).toEqual(["Dinner out €12.00 | I paid · ½ Half each"]);
+      await press(element, "rename");
+      await fill(element, "rename", "Oporto", how);
+      expect(inside(element).querySelector("[data-name]").textContent, how).toBe("Oporto");
+      await fill(element, "nick", "Ana", how);
+      expect(element.account.nick, how).toBe("Ana");
+      await press(element, "settle");
+      await press(element, "confirmSettle");
+      expect(balanceOf(element), how).toBe("All square");
+      expect(inside(element).querySelector("form"), how).toBeNull();
+      document.body.innerHTML = "";
+    }
+  });
+
+  it("does not take the Enter that only ends a composed word", async () => {
+    const element = await phone(fakeCore());
+    await fill(element, "new", { value: "Lisboa" }, "composing");
+    expect(element.account).toBeNull();
+    await fill(element, "new", { value: "Lisboa" }, "enter");
+    expect(element.account?.name).toBe("Lisboa");
+  });
+
+  /** Types an amount as a keyboard does: the value changes and an `input` event follows. */
+  async function type(element, value, form = "add") {
+    const field = inside(element).querySelector(`[data-form="${form}"] [name="amount"]`);
+    field.value = value;
+    field.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
+    await settle(element);
+    return plain(inside(element).querySelector(`[data-form="${form}"] [data-preview]`).textContent);
+  }
+  const money = (lang, currency, value) => plain(new Intl.NumberFormat(lang, { style: "currency", currency }).format(value));
+
+  it("shows the amount as it will be written while it is typed, in the account's currency", async () => {
+    const element = await phone(fakeCore());
+    await newAccount(element, "Lisboa");
+    expect(plain(inside(element).querySelector('[data-form="add"] [data-preview]').textContent)).toBe("");
+    expect(await type(element, "1")).toBe("= €1.00");
+    expect(await type(element, "12")).toBe("= €12.00");
+    expect(await type(element, "12,5")).toBe("= €12.50");
+    expect(await type(element, "12,50")).toBe("= €12.50");
+    expect(await type(element, "12.50")).toBe("= €12.50");
+    // The Samsung keypad has no comma: "12,50" typed as "1250" shows what it really is.
+    expect(await type(element, "1250")).toBe("= €1,250.00");
+    expect(await type(element, "12,505")).toContain("Write an amount like 12.50");
+    expect(await type(element, "")).toBe("");
+    // The button does nothing with an amount that is not one.
+    await type(element, "12,505");
+    inside(element).querySelector('[data-form="add"] [data-act="submit"]').click();
+    await settle(element);
+    expect(rows(element)).toEqual([]);
+    // The same while editing an expense.
+    await fill(element, "add", { amount: "10", what: "Dinner" });
+    await press(element, "edit", `[data-id="${entryId(element, "Dinner")}"]`);
+    expect(await type(element, "30,5", "edit")).toBe("= €30.50");
+  });
+
+  it("shows it in the phone's language, and with each currency's decimals", async () => {
+    const spanish = await phone(fakeCore({ lang: "es" }));
+    await newAccount(spanish, "Lisboa");
+    expect(await type(spanish, "1250")).toBe(`= ${money("es", "EUR", 1250)}`);
+    expect(await type(spanish, "12,5")).toBe(`= ${money("es", "EUR", 12.5)}`);
+    const yen = await phone(fakeCore());
+    await newAccount(yen, "Tokio", "JPY");
+    expect(await type(yen, "1.500")).toBe("= ¥1,500");
+    expect(await type(yen, "15,5")).toContain("Write an amount like 1250");
+    const dinar = await phone(fakeCore());
+    await newAccount(dinar, "Kuwait", "KWD");
+    expect(await type(dinar, "1,25")).toBe(`= ${money("en", "KWD", 1.25)}`);
+    expect(await type(dinar, "1,25")).toContain("1.250");
+  });
+
+  it("keeps a comfortable width on a tablet, and the phone as it was", async () => {
+    const element = await phone(fakeCore());
+    const css = inside(element).querySelector("style").textContent;
+    expect(css).toMatch(/\.view\s*\{[^}]*max-inline-size:\s*640px/);
+    expect(css).toMatch(/\.view\s*\{[^}]*margin-inline:\s*auto/);
+  });
+});
+
+
+describe("a narrow phone", () => {
+  it("puts the account's title on its own line, whole, with the buttons on a row below", async () => {
+    const element = await phone(fakeCore());
+    const long = "Viaje a Lisboa con los primos en septiembre, gastos de todos";
+    await newAccount(element, long);
+    const header = inside(element).querySelector("[data-header]");
+    const title = header.querySelector("[data-name]");
+    expect(title.textContent).toBe(long);
+    // The title is not an item of the flexible row of buttons, which could shrink it to nothing.
+    expect(title.closest(".bar")).toBeNull();
+    expect(header.classList.contains("bar")).toBe(false);
+    const buttons = header.querySelector(".bar");
+    expect(buttons).not.toBeNull();
+    expect(title.compareDocumentPosition(buttons) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    for (const act of ["back", "rename", "live", "send", "close"]) expect(buttons.querySelector(`[data-act="${act}"]`), act).not.toBeNull();
+    // Renaming takes the title's line too.
+    await press(element, "rename");
+    expect(header.querySelector('[data-form="rename"]').closest(".bar")).toBeNull();
+    const css = inside(element).querySelector("style").textContent;
+    expect(css).not.toContain("ellipsis");
+    expect(css).toMatch(/\.title-line\s*\{[^}]*overflow-wrap:\s*anywhere/);
+    expect(css).not.toMatch(/h1\s*\{[^}]*nowrap/);
+    // Buttons never go under 44 px, and a row of them wraps rather than leave a 320 px screen.
+    expect(css).toMatch(/\nbutton\s*\{[^}]*min-width:\s*44px[^}]*height:\s*44px/);
+    expect(css).toMatch(/\.bar\s*\{[^}]*flex-wrap:\s*wrap/);
+  });
+});
+
+describe("the element as a browser makes it", () => {
+  it("leaves no attribute and no child from its constructor, and takes lang and dir only when opened", async () => {
+    await import("./src/index.js");
+    const made = document.createElement("ft-split");
+    expect([...made.attributes].map((one) => one.name)).toEqual([]);
+    expect(made.childNodes.length).toBe(0);
+    const core = fakeCore({ lang: "ar" });
+    globalThis.ft = core.ft;
+    document.body.append(made);
+    await core.open({ live: false });
+    await settle(made);
+    expect(made.getAttribute("lang")).toBe("ar");
+    expect(made.getAttribute("dir")).toBe("rtl");
+    expect(made.language).toBe("ar");
+  });
+});
