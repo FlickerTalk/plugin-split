@@ -105,6 +105,7 @@ describe("the manifest", () => {
       id: "com.flickertalk.split",
       name: "Split",
       version: "1.0.1",
+      icon: "cut-outline",
       minCoreVersion: "1.3.0",
       components: ["ft-split"],
       permissions: { live: true, send: "propose" },
