@@ -1,7 +1,7 @@
 // What the catalogue signs is `module.json` + `dist/`: the build must leave it small, without a
 // web address, without anything the plugin frame forbids, and with the licences of what it carries.
 // Run `npm run build` before these tests (CI does it; `dist/` is committed).
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { readFileSync, readdirSync, statSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
@@ -79,5 +79,20 @@ describe("the package", () => {
     for (const name of ["yjs 13.6.33", "lib0 0.2.118", "ionicons 8.1.0"]) expect(notices).toContain(name);
     expect(notices.match(/Permission is hereby granted, free of charge/g).length).toBeGreaterThanOrEqual(3);
     expect(notices).toContain(readFileSync(join(import.meta.dirname, "node_modules", "ionicons", "LICENSE"), "utf8").trim());
+  });
+});
+
+describe("the image of the Apps grid", () => {
+  // icon.svg beside module.json and dist/, signed with the rest: the app draws it on the tile; the
+  // Ionicon in module.json stays as the fallback (2026-10-08).
+  const image = join(import.meta.dirname, "icon.svg");
+
+  it("is a square 64 × 64 SVG of at most 4 KB at the root of the package, and not inside dist/", () => {
+    expect(existsSync(image), "icon.svg").toBe(true);
+    expect(statSync(image).size).toBeLessThanOrEqual(4096);
+    const svg = readFileSync(image, "utf8");
+    expect(svg.startsWith("<svg")).toBe(true);
+    expect(svg).toContain('viewBox="0 0 64 64"');
+    expect(existsSync(join(import.meta.dirname, "dist", "icon.svg"))).toBe(false);
   });
 });
