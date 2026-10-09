@@ -30,8 +30,8 @@ const escape = (text) =>
  * An icon. Beside a text (the usual case, also inside a button that has its own `aria-label`) it
  * is hidden from screen readers; standing alone, `label` names it.
  */
-export function icon(name, { label } = {}) {
-  const a11y = label ? `role="img" aria-label="${escape(label)}"` : 'aria-hidden="true"';
+export function icon(name, { label, slot } = {}) {
+  const a11y = (label ? `role="img" aria-label="${escape(label)}"` : 'aria-hidden="true"') + (slot ? ` slot="${slot}"` : "");
   if (Object.hasOwn(OWN, name)) return `<i class="i own" ${a11y}>${OWN[name]}</i>`;
   if (APP_ICONS.has(name)) return `<i class="i" ${a11y} style="--i:url(./icon/${name}.svg)"></i>`;
   throw new Error(`no icon ${name}`);
