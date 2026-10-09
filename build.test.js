@@ -62,13 +62,13 @@ describe("the package", () => {
     const element = document.createElement("ft-split");
     document.body.append(element);
     await core.open({ live: false });
-    const fields = element.shadowRoot.querySelector('[data-form="new"]');
+    const fields = element.querySelector('[data-form="new"]');
     fields.querySelector("input").value = "Lisboa";
     fields.querySelector("select").value = "JPY";
     fields.querySelector('[data-act="submit"]').click();
     for (let at = 0; at < 50; at += 1) await Promise.resolve();
     await element.keeper.settled();
-    expect(element.shadowRoot.querySelector("[data-name]").textContent).toBe("Lisboa");
+    expect(element.querySelector("[data-name]").textContent).toBe("Lisboa");
     expect(element.account.currency).toBe("JPY");
     expect([...core.records.keys()].sort()).toEqual([`split/local/${element.account.id}/body`, `split/local/${element.account.id}/meta`]);
   });
