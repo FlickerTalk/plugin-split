@@ -83,8 +83,12 @@ encrypted over the direct connection.
 | `ft.say`     | 📤 (`send: propose`: the text lands in the composer and you send it)          |
 | `onOpen`     | `lang`; `live` (true only from a conversation, with live allowed); `chat`, the conversation's id |
 
-Permissions: `{ "live": true, "send": "propose" }`. Needs FlickerTalk core **1.3.0**
-(`minCoreVersion`), the first that tells a plugin which conversation it was opened in. The contract is in [plugin-sdk](https://github.com/FlickerTalk/plugin-sdk).
+Permissions: `{ "live": true, "send": "propose" }`. Needs FlickerTalk core **1.6.0**
+(`minCoreVersion`), the first that lends Ionic to the plugin frame: since 1.0.3 Split's screens sit
+in Ionic's `ion-header > ion-toolbar` and `ion-content`, with `ion-button`s, so it looks like the rest
+of FlickerTalk; the package carries no Ionic (`@ionic/core` is only a devDependency, so the tests
+draw what the phone draws). The way out is the app's ✕: Split says goodbye to the other phone from
+`ft.onClose`. The contract is in [plugin-sdk](https://github.com/FlickerTalk/plugin-sdk).
 
 ## How an account is kept
 
