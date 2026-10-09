@@ -40,7 +40,15 @@ async function phone(core, opening = { live: true }) {
   return element;
 }
 
-const inside = (element) => element.shadowRoot;
+// In the page, not in a shadow root: Ionic's global styles do not cross a shadow boundary.
+const inside = (element) => element;
+// Ionic moves a button's label to the native button inside it once it has drawn.
+const label = (one) => one?.getAttribute("aria-label") ?? one?.shadowRoot?.querySelector("button")?.getAttribute("aria-label") ?? null;
+/** The app's ✕ (there is none in the plugin): its goodbye runs, then the window goes. */
+async function closeWindow(element, core) {
+  await core.closeWindow();
+  await settle(element);
+}
 const settle = async (...elements) => {
   await flush();
   for (const element of elements) await element.keeper.settled();
@@ -104,9 +112,9 @@ describe("the manifest", () => {
     expect(manifest).toEqual({
       id: "com.flickertalk.split",
       name: "Split",
-      version: "1.0.2",
+      version: "1.0.3",
       icon: "cut-outline",
-      minCoreVersion: "1.3.0",
+      minCoreVersion: "1.6.0",
       components: ["ft-split"],
       permissions: { live: true, send: "propose" },
       summary: expect.any(String),
@@ -432,7 +440,7 @@ describe("two phones", () => {
     await press(a, "live");
     await idle();
     const id = a.account.id;
-    await press(b, "close");
+    await closeWindow(b, coreB);
     await idle();
     expect(coreB.closed).toBe(1);
     expect(statusOf(a)).toContain("closed the account");
@@ -540,7 +548,7 @@ describe("a third person", () => {
     const peer = a.account.peer;
     expect(peer).toBe(b.account.who);
     // A opens Split in the conversation with C: that conversation has its own accounts.
-    await press(a, "close");
+    await closeWindow(a, coreA);
     document.body.removeChild(a);
     coreA.reload();
     relink(coreC);
@@ -554,7 +562,7 @@ describe("a third person", () => {
     expect(coreC.records.size).toBe(0);
     expect(coreC.sent).toHaveLength(0);
     // Back in the conversation with B, with B's Split closed: A resumes, nobody answers.
-    await press(withC, "close");
+    await closeWindow(withC, coreA);
     document.body.removeChild(withC);
     coreA.reload();
     relink(coreB);
@@ -630,7 +638,7 @@ describe("a third person", () => {
 
 describe("conversations", () => {
   const reopen = async (core, element, opening) => {
-    await press(element, "close");
+    await closeWindow(element, core);
     document.body.removeChild(element);
     core.reload();
     return phone(core, opening);
@@ -806,7 +814,7 @@ describe("found in the iOS simulator", () => {
     await settle(again);
     expect(again.hasAttribute("dark")).toBe(false);
     const css = inside(dark).querySelector("style").textContent;
-    expect(css).toContain(":host([dark])");
+    expect(css).toContain("ft-split[dark]");
     expect(css).toContain("prefers-color-scheme: dark");
     expect(css).not.toContain(":host-context");
   });
@@ -916,6 +924,8 @@ describe("icons, not emoji", () => {
     for (const html of shots) {
       const box = document.createElement("div");
       box.innerHTML = html;
+      // Ionic's buttons hand their label to their native button once drawn: their labels are
+      // checked where they are drawn (with the Ionic the app lends).
       for (const button of box.querySelectorAll("button")) {
         const named = (button.getAttribute("aria-label") ?? "").trim() || button.textContent.trim();
         expect(named, button.outerHTML).not.toBe("");
@@ -1046,17 +1056,60 @@ describe("a narrow phone", () => {
     const buttons = header.querySelector(".bar");
     expect(buttons).not.toBeNull();
     expect(title.compareDocumentPosition(buttons) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    for (const act of ["back", "rename", "live", "send", "close"]) expect(buttons.querySelector(`[data-act="${act}"]`), act).not.toBeNull();
+    for (const act of ["back", "rename", "live", "send"]) expect(buttons.querySelector(`[data-act="${act}"]`), act).not.toBeNull();
     // Renaming takes the title's line too.
     await press(element, "rename");
-    expect(header.querySelector('[data-form="rename"]').closest(".bar")).toBeNull();
+    // The header is drawn anew: look again.
+    expect(inside(element).querySelector('[data-header] [data-form="rename"]').closest(".bar")).toBeNull();
     const css = inside(element).querySelector("style").textContent;
     expect(css).not.toContain("ellipsis");
     expect(css).toMatch(/\.title-line\s*\{[^}]*overflow-wrap:\s*anywhere/);
     expect(css).not.toMatch(/h1\s*\{[^}]*nowrap/);
     // Buttons never go under 44 px, and a row of them wraps rather than leave a 320 px screen.
-    expect(css).toMatch(/\nbutton\s*\{[^}]*min-width:\s*44px[^}]*height:\s*44px/);
+    expect(css).toMatch(/\n(?:ft-split )?button\s*\{[^}]*min-width:\s*44px[^}]*height:\s*44px/);
     expect(css).toMatch(/\.bar\s*\{[^}]*flex-wrap:\s*wrap/);
+  });
+});
+
+describe("with the Ionic the app lends", () => {
+  it("draws the accounts in the page, in Ionic's header and content, with no close of its own", async () => {
+    const element = await phone(fakeCore());
+    expect(element.shadowRoot).toBe(null);
+    expect(element.querySelector(":scope > ion-header > ion-toolbar > ion-title").textContent).toBe(STRINGS.en.title);
+    expect(element.querySelector(':scope > ion-content .view [data-form="new"]')).not.toBeNull();
+    expect(element.querySelector('[data-form="new"] [data-act="submit"]').tagName).toBe("ION-BUTTON");
+    expect(element.querySelector('[data-act="close"]')).toBeNull();
+  });
+
+  it("draws an account with its title and its buttons in two toolbars of the header, Ionic buttons with labels", async () => {
+    const element = await phone(fakeCore());
+    await newAccount(element, "Lisboa");
+    const header = element.querySelector(":scope > ion-header[data-header]");
+    expect(header.querySelector(":scope > ion-toolbar.title-line [data-name]").textContent).toBe("Lisboa");
+    for (const act of ["back", "rename", "live", "send"]) {
+      const button = header.querySelector(`:scope > ion-toolbar ion-button[data-act="${act}"]`);
+      expect(button, act).not.toBeNull();
+      expect(label(button), act).toBeTruthy();
+    }
+    expect(element.querySelector('[data-act="close"]')).toBeNull();
+    expect(element.querySelector(':scope > ion-content [data-form="add"] ion-button[data-act="submit"]')).not.toBeNull();
+    // Who paid and for whom: Ionic buttons, the chosen one filled and pressed.
+    const choice = (field, value) => element.querySelector(`ion-button[data-act="choose"][data-scope="add"][data-field="${field}"][data-value="${value}"]`);
+    expect(choice("paid", "me").getAttribute("fill")).toBe("solid");
+    expect(choice("paid", "other").getAttribute("fill")).toBe("outline");
+    await choose(element, "add", "paid", "other");
+    expect(choice("paid", "other").getAttribute("fill")).toBe("solid");
+  });
+
+  it("says goodbye to the other phone when the app's window closes", async () => {
+    const core = fakeCore();
+    const element = await phone(core);
+    await newAccount(element, "Lisboa");
+    let left = 0;
+    const leave = element.leave.bind(element);
+    element.leave = async () => ((left += 1), leave());
+    await closeWindow(element, core);
+    expect(left).toBe(1);
   });
 });
 

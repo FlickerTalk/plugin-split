@@ -19,6 +19,7 @@ export function fakeCore({ quota = 4 * 1024 * 1024, lang = "en" } = {}) {
   const records = new Map();
   const openers = [];
   const hearers = [];
+  const closers = [];
   const core = {
     records,
     quota,
@@ -37,6 +38,15 @@ export function fakeCore({ quota = 4 * 1024 * 1024, lang = "en" } = {}) {
       core.live = given.live;
       for (const handler of openers) await handler(given);
     },
+    /**
+     * The app's ✕ or Android's Back (core 1.3.0, `ft.onClose`): the plugin's goodbyes run, and are
+     * waited for, then the window goes away, as when the plugin closes itself.
+     */
+    async closeWindow() {
+      for (const handler of closers) await handler();
+      core.closed += 1;
+      core.shut();
+    },
     /** The plugin's window goes away: nothing reaches it any more. */
     shut() {
       core.listening = false;
@@ -46,6 +56,7 @@ export function fakeCore({ quota = 4 * 1024 * 1024, lang = "en" } = {}) {
       core.listening = false;
       openers.length = 0;
       hearers.length = 0;
+      closers.length = 0;
     },
     /**
      * What the twin said, handed to this frame. As in the real frame, every handler is called at
@@ -63,6 +74,7 @@ export function fakeCore({ quota = 4 * 1024 * 1024, lang = "en" } = {}) {
     },
     ft: {
       onOpen: (handler) => openers.push(handler),
+      onClose: (handler) => closers.push(handler),
       pickFile: vi.fn(async () => null),
       send: vi.fn(() => core.shut()),
       say: vi.fn((text) => {
